@@ -1,0 +1,18 @@
+node_modules/
+release/
+artifacts/
+test-results/
+playwright-report/
+.DS_Store
+
+# Local configuration and private capture data
+.env
+.env.*
+!.env.example
+recordings/
+*.webm
+*.mp4
+*.mkv
+*.pem
+*.key
+*.log

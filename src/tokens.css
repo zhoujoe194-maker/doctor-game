@@ -1,0 +1,11 @@
+:root{
+  --font:"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --mono:"SFMono-Regular",Consolas,"Liberation Mono",monospace;
+  --canvas:#f5f6f2;--surface:#ffffff;--ink:#1d2b22;--muted:#667065;--soft:#8b9488;--line:#dfe3d9;--line-strong:#cdd4c7;--control-border:#8f9b88;
+  --forest:#192a23;--forest-light:#263b30;--side-text:#f2f5ed;--side-muted:#a5b6a8;--side-line:#34473a;
+  --accent:#c2f279;--accent-hover:#b3e368;--green:#426c2f;--focus:#5a8a33;--subtle:#f0f3eb;
+  --stage:#202d26;--grid-line:#2a372f;--grid-axis:#394d3c;--stage-ring:#547147;--stage-muted:#60775c;--stage-text:#adbcaa;
+  --selection:#eef4e6;--selection-border:#cbd9bd;--notice:#eef4e6;--notice-border:#becfac;
+  --danger:#9d322a;--red:#d66e5e;--error-surface:#fdf0ec;--error-border:#dca69d;
+  --amber:#815d20;--amber-surface:#f7efdb;--blue:#386184;--blue-surface:#eaf1f7;--backdrop:#0c1e18b3;
+}
