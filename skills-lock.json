@@ -9,6 +9,14 @@
       "skillPath": "skill-data/electron/SKILL.md",
       "computedHash": "3e2e11f65e09b8e0e558f23113ceb14f944d1b236a6d79a4cf4189e198569a82"
     },
+    "electron-builder": {
+      "source": "pedronauck/skills",
+      "ref": "93655db210f1860822215d5a9bd86f580ffb1239",
+      "commit": "93655db210f1860822215d5a9bd86f580ffb1239",
+      "sourceType": "github",
+      "skillPath": "skills/curated/electron-builder/SKILL.md",
+      "computedHash": "dac59afe29cc630c0bb55ffcf92e4177728fb01c9de61c64fc2fb7095a362323"
+    },
     "frontend-design": {
       "source": "anthropics/skills",
       "ref": "e4bb5d960d87126ff3b3a8af1a104b7db67560ba",
@@ -17,6 +25,14 @@
       "skillPath": "skills/frontend-design/SKILL.md",
       "computedHash": "83485963700bcf11d5bf78118facb301676b69d918fee2e45a95e7f1a2840f6c"
     },
+    "game-ui-ux": {
+      "source": "gamedev-skills/awesome-gamedev-agent-skills",
+      "ref": "c6ca6c41c839b68319ffc08430b99ab768debc32",
+      "commit": "c6ca6c41c839b68319ffc08430b99ab768debc32",
+      "sourceType": "github",
+      "skillPath": "skills/disciplines/game-ui-ux/SKILL.md",
+      "computedHash": "8bf85f22ef57c78fd2a5b14c086e6cb4a1a0f6b729111abeed29be96cf615610"
+    },
     "playwright-cli": {
       "source": "microsoft/playwright-cli",
       "ref": "99c4eb2566153f37fb104e5dbf894fb9c785e17d",
@@ -24,6 +40,14 @@
       "sourceType": "github",
       "skillPath": "skills/playwright-cli/SKILL.md",
       "computedHash": "d3c50339092b670cdda1ba2bed0bdee1c34247cdf70df475e8b7d83983a39e79"
+    },
+    "steam-publish": {
+      "source": "gamedev-skills/awesome-gamedev-agent-skills",
+      "ref": "c6ca6c41c839b68319ffc08430b99ab768debc32",
+      "commit": "c6ca6c41c839b68319ffc08430b99ab768debc32",
+      "sourceType": "github",
+      "skillPath": "skills/workflows/steam-publish/SKILL.md",
+      "computedHash": "d274d04aef6fabd96e14c1516a5d2ba363b8531817c9366c9ae7c9183b4091e3"
     },
     "systematic-debugging": {
       "source": "obra/superpowers",

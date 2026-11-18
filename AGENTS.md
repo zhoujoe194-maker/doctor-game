@@ -19,9 +19,12 @@ task needs it; do not load every skill for every task.
 | Task | Skill |
 | --- | --- |
 | Targeted visual or layout work | `frontend-design` |
+| Game-tool screen flow, window resizing, and keyboard focus in replay | `game-ui-ux` |
 | Interaction, keyboard, form, and accessibility review | `web-design-guidelines` |
 | Browser exploration, reproduction, and Playwright investigation | `playwright-cli` |
 | Electron renderer interaction through a development CDP session | `electron` |
+| Build a downloadable Windows installer from the packaged desktop app | `electron-builder` |
+| Prepare SteamPipe content, verify depot mappings, and document launch options | `steam-publish` |
 | Bugs, unexpected behavior, or failed tests | `systematic-debugging` |
 | Completion claims and handoff | `verification-before-completion` |
 
@@ -31,6 +34,11 @@ directory for desktop testing. Enable CDP only for an explicit local
 development session; do not add a debugging port to production startup.
 Keep tasks within the user's requested scope and the repository's constraints
 when applying general skill examples.
+
+For the desktop beta redesign, follow `docs/desktop-beta-prompt.md`. Start with
+the player's next action and the footage under review. Keep runtime packaging
+and distribution separate: the standalone installer and the Steam depot should
+derive from the same packaged app. Publishing requires a separate request.
 
 ## Product and data invariants
 

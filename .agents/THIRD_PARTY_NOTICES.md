@@ -11,6 +11,8 @@ development use. Their source commits and content hashes are recorded in
 | `skills/playwright-cli` | [Microsoft Playwright CLI](https://github.com/microsoft/playwright-cli/tree/99c4eb2566153f37fb104e5dbf894fb9c785e17d/skills/playwright-cli) | Apache-2.0; original [LICENSE](licenses/playwright-cli-LICENSE.txt) included |
 | `skills/electron` | [Vercel Labs agent-browser](https://github.com/vercel-labs/agent-browser/tree/deda8eff5e29bcc3b4a9f10aafd1412dbe91745a/skill-data/electron) | Apache-2.0; original [LICENSE](licenses/agent-browser-LICENSE.txt) included |
 | `skills/systematic-debugging`, `skills/verification-before-completion` | [Superpowers](https://github.com/obra/superpowers/tree/22f0b463e7a5e579904dd6211a520321035526f7/skills) | MIT, copyright (c) 2025 Jesse Vincent; original [LICENSE](licenses/superpowers-LICENSE.txt) included |
+| `skills/game-ui-ux`, `skills/steam-publish` | [Game UI/UX](https://github.com/gamedev-skills/awesome-gamedev-agent-skills/tree/c6ca6c41c839b68319ffc08430b99ab768debc32/skills/disciplines/game-ui-ux) and [Steam Publish](https://github.com/gamedev-skills/awesome-gamedev-agent-skills/tree/c6ca6c41c839b68319ffc08430b99ab768debc32/skills/workflows/steam-publish) | Apache-2.0. See the upstream [LICENSE](licenses/gamedev-skills-LICENSE.txt) and [NOTICE](licenses/gamedev-skills-NOTICE.txt). |
+| `skills/electron-builder` | [Pedro Nauck's skills](https://github.com/pedronauck/skills/tree/93655db210f1860822215d5a9bd86f580ffb1239/skills/curated/electron-builder) | MIT. See the upstream [LICENSE](licenses/pedronauck-skills-LICENSE.txt). |
 
 Root license copies are kept outside individual skill directories so the
 installer's recorded skill-content hashes continue to match upstream files.
