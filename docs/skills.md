@@ -8,6 +8,8 @@
 
 | Skill | 来源 | 在本项目中的用途 |
 | --- | --- | --- |
+| `find-skills` | `vercel-labs/skills` | 新任务出现能力缺口时搜索候选，与已安装项比较并核对来源 |
+| `grill-me`、`grilling` | `mattpocock/skills` | 主动发起产品评审时使用。前者是入口，后者实现提问，可用来确定首测玩家和一次复盘的成功标准 |
 | `frontend-design` | Anthropic / `anthropics/skills` | 把工作台、回放和报告设计成统一的桌面工具，按本项目方向使用颜色、字体和间距 |
 | `game-ui-ux` | `gamedev-skills/awesome-gamedev-agent-skills` | 让录制、回放与片段确认顺手，检查窗口缩放和键盘焦点 |
 | `web-design-guidelines` | Vercel / `vercel-labs/agent-skills` | 检查键盘操作、表单、焦点、错误提示与可访问性 |
