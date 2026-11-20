@@ -45,10 +45,37 @@ Electron 的 contextIsolation / sandbox 均开启、nodeIntegration 关闭，渲
 
 ## Windows 安装与下载
 
-Windows CI 配置在 `.github/workflows/windows-beta.yml`。它生成版本化未签名 NSIS 安装包，
-并通过 `scripts/test-windows-install.ps1` 执行实际安装、开始菜单启动、UI 导入复盘、
-重启、测试版本升级及卸载保留数据。安装后程序的 PATH 移除 Node / pnpm，独立运行。
-CI 的成功状态与下载校验值将在本次实际运行结束后记录于此。
+Windows CI [第 3 次运行全部通过](https://github.com/zhoujoe194-maker/doctor-game/actions/runs/44741155789)，
+测试代码提交为 `3d0b4d835016ee8c32b3ac3303e946a88dfa7d6b`。
+随后只补充 README 和本验收记录，不改变运行代码或安装配置。
+
+- [下载 Windows x64 测试安装包 ZIP](https://github.com/zhoujoe194-maker/doctor-game/actions/runs/44741155789/artifacts/14630254510)
+- [下载 Windows 验证记录与 Electron 截图](https://github.com/zhoujoe194-maker/doctor-game/actions/runs/44741155789/artifacts/14632010472)
+
+下载 artifact 需要登录 GitHub；保留至 2026-12-20。解压后运行其中的
+`release/0.2.0-beta.1/installer/doctorgame-0.2.0-beta.1-win-x64-setup.exe`。
+这是未签名测试包。以下是 **ZIP 内 setup.exe** 的 SHA-256，不是 ZIP 的校验值：
+
+```text
+d78eff0c7666f5644ac2c8d5774a0b69b213ad477723cd6280334fd91ab0ddad
+```
+
+Windows GitHub 托管运行器（系统版本 10.0.26100）实际结果：
+
+| 验收项 | 结果 |
+| --- | --- |
+| 算法 / 浏览器 | 11 / 5 项全部通过 |
+| NSIS 安装 | 静默安装退出码 0，独立程序存在，开始菜单快捷方式指向正确程序 |
+| 无外部 Node 启动 | 移除 Node / pnpm 的 PATH 后，从真实开始菜单快捷方式启动窗口成功 |
+| 安装后的导入与复盘 | 实际文件选择导入合成 WebM、解码、点击片段跳转、慢放、确认、排除、恢复通过 |
+| 重启 | 录像字节 SHA-256、档案、报告及本局档案快照一致 |
+| 升级 | 安装测试专用 beta.2，程序报告新版本；原档案、报告及录像逐项保持一致 |
+| 卸载 | 退出码 0；程序和开始菜单入口移除；录像字节、录像元数据、档案/报告存储保留 |
+| Steam 离线检查 | 实际 74 文件 / 374365787 字节，与安装器运行目录哈希一致；21 个禁止样例被排除 |
+
+beta.2 仅用于升级测试，没有作为试用包分发。验证配置在
+`.github/workflows/windows-beta.yml` 和 `scripts/test-windows-install.ps1`。
+这些结果来自 Windows CI 和带水印的合成视频；没有代替真实游戏硬件验收。
 
 本机默认官方下载请求发生 `UND_ERR_CONNECT_TIMEOUT`；使用已有 Electron ZIP 缓存后
 运行目录及 NSIS 构建成功。当前用户安装禁用提权辅助程序，避免 NSIS 向共享的 Steam
