@@ -19,6 +19,7 @@ module.exports = {
     oneClick: false,
     perMachine: false,
     allowElevation: false,
+    packElevateHelper: false,
     allowToChangeInstallationDirectory: true,
     createStartMenuShortcut: true,
     createDesktopShortcut: true,

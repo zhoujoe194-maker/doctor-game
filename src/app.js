@@ -49,7 +49,7 @@ function notify(message, error = false) {
 function releaseMedia() { if (state.mediaUrl?.startsWith('blob:')) URL.revokeObjectURL(state.mediaUrl); state.mediaUrl = null; }
 async function setBusy(value) { state.busy = value; await window.doctorgame?.setBusy(value); }
 async function refreshRecordings() { state.recordings = await storage.list(); }
-function navigate(page) { state.page = page; state.notice = null; render(); $('#main').focus(); }
+function navigate(page) { state.page = page; state.notice = null; render(); $('#main').focus({ preventScroll: true }); window.scrollTo(0, 0); }
 const navItems = [['workspace', 'grid', '工作台'], ['history', 'play', '对局记录'], ['profile', 'sliders', '玩家档案'], ['method', 'book', '分析方法']];
 
 function render() {

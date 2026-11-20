@@ -99,7 +99,11 @@ try {
     await expect.poll(() => page.locator('#replay').evaluate(v => v.currentTime)).toBeGreaterThan(position + 0.3);
     await page.locator('#replay').evaluate(v => v.pause());
     for (const [width, height] of [[1440, 900], [1280, 720], [760, 620]]) {
-      await desktop.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setContentSize(...size), [width, height]);
+      await desktop.evaluate(({ BrowserWindow }, size) => {
+        const window = BrowserWindow.getAllWindows()[0];
+        if (size[0] === 760) window.setSize(...size); // Actual minimum outer desktop window.
+        else window.setContentSize(...size);
+      }, [width, height]);
       await page.evaluate(() => window.scrollTo(0, 0));
       if (width === 760 && await page.locator('#clips-panel').evaluate(el => el.open)) await page.locator('#clips-panel > summary').click();
       if (width >= 1280) {

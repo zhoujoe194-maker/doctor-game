@@ -39,8 +39,7 @@ jobs:
         run: python scripts/verify-steam.py
       - name: Install, import, review, restart, upgrade and uninstall
         run: ./scripts/test-windows-install.ps1
-      - name: Upload versioned beta and evidence (no release publishing)
-        if: always()
+      - name: Upload verified versioned beta (no release publishing)
         uses: actions/upload-artifact@v4
         with:
           name: doctorgame-0.2.0-beta.1-windows-x64
@@ -50,10 +49,18 @@ jobs:
             release/0.2.0-beta.1/installer/*setup.exe
             release/0.2.0-beta.1/installer/*.sha256
             release/0.2.0-beta.1/installer/runtime-manifest.json
+            docs/windows.md
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: doctorgame-windows-verification
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
             artifacts/windows-install-result.json
             artifacts/steam-offline.json
             artifacts/electron/windows-installed/*.png
             artifacts/electron/windows-installed/result.json
             artifacts/electron/windows-upgraded/result.json
             artifacts/beta/*.png
-            docs/windows.md

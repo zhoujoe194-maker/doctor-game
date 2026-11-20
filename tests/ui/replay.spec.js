@@ -55,6 +55,7 @@ test('import, clip seek, review without losing playback, timeline and saved hist
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.getByRole('button', { name: '工作台', exact: true }).click();
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
   await expect(page.getByRole('button', { name: '继续复盘' })).toBeVisible();
   await expect(page.locator('#recent-preview')).toHaveJSProperty('videoWidth', 1280);
   await page.screenshot({ path: 'artifacts/beta/workspace-with-session.png', fullPage: true });
