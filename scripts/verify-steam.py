@@ -35,7 +35,7 @@ def render_templates(scripts, content, version):
                     'CONTENT_ROOT': content.resolve().as_posix(),
                     'BUILD_OUTPUT': (scripts.parent / 'output').resolve().as_posix()}
     for filename in ['app_build', 'depot_build_windows']:
-        text = (ROOT / 'steam' / (filename + '.vdf.in')).read_text()
+        text = (ROOT / 'steam' / (filename + '.vdf.in')).read_text(encoding='utf-8')
         if '"SetLive"' in text:
             raise AssertionError('Publishing state is outside the preparation scope')
         for key, value in replacements.items():
@@ -44,7 +44,7 @@ def render_templates(scripts, content, version):
             text = text.replace('{{' + key + '}}', value)
         if '{{' in text:
             raise AssertionError('Unresolved template value')
-        (scripts / (filename + '.vdf')).write_text(text)
+        (scripts / (filename + '.vdf')).write_text(text, encoding='utf-8')
 
 
 def verify(content, scripts, version):
@@ -54,7 +54,7 @@ def verify(content, scripts, version):
     errors, warnings = checker_module.ordered_issues(checker.issues)
     if errors or warnings:
         raise AssertionError(checker_module.render_text(checker, 0))
-    nodes, _ = checker_module.parse_vdf((scripts / 'depot_build_windows.vdf').read_text())
+    nodes, _ = checker_module.parse_vdf((scripts / 'depot_build_windows.vdf').read_text(encoding='utf-8'))
     depot = nodes[0]
     exclusions = [node.value.replace('\\', '/').lower() for node in depot.all('FileExclusion')]
     entries, excluded = [], []
@@ -82,7 +82,7 @@ def main():
     parser.add_argument('--content', type=Path)
     parser.add_argument('--synthetic-only', action='store_true')
     args = parser.parse_args()
-    version = json.loads((ROOT / 'package.json').read_text())['version']
+    version = json.loads((ROOT / 'package.json').read_text(encoding='utf-8'))['version']
     originals = {p.name: digest(p) for p in (ROOT / 'steam').glob('*.in')}
     with tempfile.TemporaryDirectory(prefix='doctorgame-steam-offline-') as temp:
         work = Path(temp)
@@ -113,14 +113,18 @@ def main():
             actual = verify(content, work / 'runtime-scripts', version)
             if actual['excluded']:
                 raise AssertionError('Packaged app should already contain runtime files only: ' + str(actual['excluded']))
-            manifest = json.loads((content.parent / 'runtime-manifest.json').read_text())
-            if {x['path']: x['sha256'] for x in actual['files']} != {x['path']: x['sha256'] for x in manifest['files']}:
-                raise AssertionError('Steam inventory differs from the installer runtime manifest')
+            manifest = json.loads((content.parent / 'runtime-manifest.json').read_text(encoding='utf-8'))
+            actual_hashes = {x['path']: x['sha256'] for x in actual['files']}
+            expected_hashes = {x['path']: x['sha256'] for x in manifest['files']}
+            if actual_hashes != expected_hashes:
+                differences = sorted(p for p in actual_hashes.keys() | expected_hashes.keys()
+                                     if actual_hashes.get(p) != expected_hashes.get(p))
+                raise AssertionError('Steam inventory differs from installer: ' + repr(differences))
             result['runtime'] = actual
         assert originals == {p.name: digest(p) for p in (ROOT / 'steam').glob('*.in')}
         output = ROOT / 'artifacts' / 'steam-offline.json'
         output.parent.mkdir(exist_ok=True)
-        output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n')
+        output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
         print(f'Synthetic mapping: {fixture["fileCount"]} runtime files; {len(forbidden)} forbidden files excluded; 0 errors / 0 warnings.')
         if 'runtime' in result:
             print(f'Packaged mapping: {result["runtime"]["fileCount"]} files; {result["runtime"]["bytes"]} bytes; matches installer runtime.')

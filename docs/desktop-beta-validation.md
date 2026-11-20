@@ -36,6 +36,7 @@ Node 使用本机已有的 Codex runtime，未修改系统 PATH。
 | `node tests/electron-smoke.mjs` | 开发 Electron 通过；隔离用户数据，实际文件选择导入、原生写盘和媒体协议回放 |
 | 打包 macOS arm64 后，以 `DOCTORGAME_EXECUTABLE` 指向独立程序执行同一冒烟 | 通过；重启保留档案、录像和报告；旧录像仍保留当时 800 DPI，当前档案改为 1600 DPI 不篡改旧数据 |
 | Windows x64 运行目录 | 74 个文件，PE AMD64 入口，ASAR 白名单检查通过 |
+| `pnpm run dist:win`（本机使用已有 Electron ZIP） | 未签名 NSIS 安装器生成成功；构建前后共享运行目录 SHA-256 清单一致 |
 | `python3 scripts/verify-steam.py` | 合成目录的 21 个禁止文件全部排除；实际 74 个运行文件与安装器输入逐文件 SHA-256 一致；0 错误 / 0 警告 |
 
 Electron 的 contextIsolation / sandbox 均开启、nodeIntegration 关闭，渲染器无 `require`。
@@ -50,7 +51,15 @@ Windows CI 配置在 `.github/workflows/windows-beta.yml`。它生成版本化�
 CI 的成功状态与下载校验值将在本次实际运行结束后记录于此。
 
 本机默认官方下载请求发生 `UND_ERR_CONNECT_TIMEOUT`；使用已有 Electron ZIP 缓存后
-运行目录构建成功。macOS 本身无法执行 Windows 安装器；不能把交叉打包等同于安装验收。
+运行目录及 NSIS 构建成功。当前用户安装禁用提权辅助程序，避免 NSIS 向共享的 Steam
+运行目录追加文件。macOS 本身无法执行 Windows 安装器；不能把交叉打包等同于安装验收。
+
+本机安装包：`release/0.2.0-beta.1/installer/doctorgame-0.2.0-beta.1-win-x64-setup.exe`。
+本机该文件的 SHA-256（与 Windows CI 重建产物分别记录）：
+
+```text
+3ba1baea10f671b2ab3b4ffd01b589c891d95282aec7ab155b0d02381952b3ac
+```
 
 ## 仍需 Windows 游戏硬件
 
