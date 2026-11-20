@@ -1,0 +1,12 @@
+"AppBuild"
+{
+    "AppID" "{{APP_ID}}"
+    "Desc" "doctorgame Windows x64 {{VERSION}}"
+    "ContentRoot" "{{CONTENT_ROOT}}"
+    "BuildOutput" "{{BUILD_OUTPUT}}"
+    "Preview" "1"
+    "Depots"
+    {
+        "{{DEPOT_ID}}" "depot_build_windows.vdf"
+    }
+}

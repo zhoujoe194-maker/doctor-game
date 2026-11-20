@@ -10,15 +10,25 @@ doctorgame 希望把「灵敏度不顺手」拆成可回看的具体问题：击
 
 ## 界面预览
 
-![doctorgame 工作台](docs/images/workspace-desktop.png)
+![doctorgame 工作台：Electron 桌面测试版](docs/images/beta/workspace-after.png)
 
-![赛后复盘界面：合成演示轨迹，并非真实玩家数据](docs/images/report-desktop.png)
+![赛后复盘：Electron 导入的合成测试录像，非真实游戏](docs/images/beta/report-after.png)
+
+两组[改版前后对照与实测记录](docs/desktop-beta-validation.md)。
 
 ## 核心流程
 
 填写玩家档案 → 选择游戏窗口并后台记录 → 赛后提取候选片段 → 按场景回放确认 → 小幅试用或保持原值 → 在相同条件下复测。
 
-## 运行
+## 玩家安装
+
+Windows x64 测试者下载版本化的 `doctorgame-0.2.0-beta.1-win-x64-setup.exe`，
+双击安装，再从开始菜单启动；无需 Node.js、pnpm 或开发服务器。
+这是未签名测试包，下载入口、SHA-256 和实际验收状态见
+[测试版验收记录](docs/desktop-beta-validation.md)，安装与数据保留说明见
+[Windows 使用说明](docs/windows.md)。源码仓库不存放安装包或玩家录像。
+
+## 开发运行
 
 需要 Node.js 22.12+。支持 npm 或 pnpm。
 
@@ -36,13 +46,16 @@ npm run dev
 
 访问 <http://127.0.0.1:4173>。浏览器录制时必须保持页面打开；桌面版在录制时关闭窗口会隐藏到托盘，可从托盘停止。
 
-Windows 打包命令：
+Windows x64 安装包构建命令（安装依赖后）：
 
 ```sh
-npm run pack:win
+npm run dist:win
 ```
 
-运行打包命令后，会生成 `release/doctorgame-win32-x64`，内含未签名的 `doctorgame.exe`。需要将整个文件夹一起分发，不能只复制可执行文件。Windows 真实游戏采集仍需在目标设备验收；当前桌面测试环境为 macOS。
+运行目录位于 `release/0.2.0-beta.1/doctorgame-win32-x64/`；安装器和 SHA-256
+位于同版本的 `installer/`。`npm run pack:win` 只生成运行目录。
+打包后的整个目录也作为 Steam depot 输入，见 [SteamPipe 准备说明](steam/README.md)。
+PR / 手动 Windows CI 仅上传测试 artifact，不创建 Release 或执行 Steam 上传。
 
 这个源码仓库不包含生成的运行包、依赖目录或玩家录像。项目介绍中的界面图片来自原型和明确标注的合成示例。
 
@@ -65,7 +78,7 @@ npm run pack:win
 ## 推荐流程
 
 1. 填写实际参数与习惯，颜色与游戏设置一致。选择完整游戏窗口，准星位于画面中央。
-2. 点击「开始观察」，正常游戏；对局结束后点击「结束并分析」。目前不自动判断比赛结束。
+2. 点击「开始录制」，正常游戏；对局结束后点击「结束并分析」。目前不自动判断比赛结束。
 3. 回放候选片段，确认场景、目标和动作意图。排除压枪、移动目标、观战、技能特效和错误轮廓。
 4. 击杀/死亡标签是分析上下文，不能直接代表瞄准好坏。预瞄候选另行观察，不参与当前的数值推荐。
 5. 有足够有效样本时，固定 DPI、设备和握姿，交替复测原值与候选值，保留适应时间，观察微调、转身和控制感。
@@ -89,6 +102,7 @@ npm test
 npx playwright install chromium
 npm run test:ui
 node tests/electron-smoke.mjs
+python3 scripts/verify-steam.py
 ```
 
 算法测试使用合成轨迹和已知图像位移；界面测试用程序生成的画布视频实际编码、保存、解码和生成报告。它们用于验证软件管线，不代表真实游戏识别准确率。

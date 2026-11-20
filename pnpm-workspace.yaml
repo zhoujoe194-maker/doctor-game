@@ -1,2 +1,4 @@
 allowBuilds:
   electron: true
+  # Squirrel.Windows is a transitive optional builder backend; this project uses NSIS.
+  electron-winstaller: false
