@@ -5,6 +5,9 @@ const { Readable } = require('node:stream');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 
+// Stable across installer upgrades. Package name and storage identifiers stay unchanged.
+if (process.platform === 'win32') app.setAppUserModelId('io.github.zhoujoe194maker.doctorgame');
+
 // Reuse an earlier prototype's data without moving or deleting recordings.
 // Explicit user-data directories (including isolated tests) always take priority.
 if (!app.commandLine.hasSwitch('user-data-dir') && !existsSync(path.join(app.getPath('userData'), 'recordings'))) {
