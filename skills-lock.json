@@ -17,6 +17,14 @@
       "skillPath": "skills/curated/electron-builder/SKILL.md",
       "computedHash": "dac59afe29cc630c0bb55ffcf92e4177728fb01c9de61c64fc2fb7095a362323"
     },
+    "find-skills": {
+      "source": "vercel-labs/skills",
+      "ref": "57217cf86ba38148a57af9e90d14a4c049558330",
+      "commit": "57217cf86ba38148a57af9e90d14a4c049558330",
+      "sourceType": "github",
+      "skillPath": "skills/find-skills/SKILL.md",
+      "computedHash": "7bc223e2aafbdbf6e50ea243ba6ef67fe432bb069ab439fea0390795dac0bf7f"
+    },
     "frontend-design": {
       "source": "anthropics/skills",
       "ref": "e4bb5d960d87126ff3b3a8af1a104b7db67560ba",
@@ -32,6 +40,22 @@
       "sourceType": "github",
       "skillPath": "skills/disciplines/game-ui-ux/SKILL.md",
       "computedHash": "8bf85f22ef57c78fd2a5b14c086e6cb4a1a0f6b729111abeed29be96cf615610"
+    },
+    "grill-me": {
+      "source": "mattpocock/skills",
+      "ref": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "commit": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "sourceType": "github",
+      "skillPath": "skills/productivity/grill-me/SKILL.md",
+      "computedHash": "ab1acb9fbd9eaee03da254abb8a8de228d1e7a07475fe959da4a5eefa34ea4b9"
+    },
+    "grilling": {
+      "source": "mattpocock/skills",
+      "ref": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "commit": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "sourceType": "github",
+      "skillPath": "skills/productivity/grilling/SKILL.md",
+      "computedHash": "485451958784497cd4c4dbea13cb5bbb579da58fac0d0e45f3bcb310fab68ac7"
     },
     "playwright-cli": {
       "source": "microsoft/playwright-cli",

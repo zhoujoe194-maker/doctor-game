@@ -19,7 +19,8 @@
     "pack:win": "node scripts/package.mjs",
     "dist:win": "node scripts/installer.mjs",
     "verify:steam": "python3 scripts/verify-steam.py",
-    "test:desktop": "node tests/electron-smoke.mjs"
+    "test:desktop": "node tests/electron-smoke.mjs",
+    "test:recovery": "node tests/electron-recovery.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.14.0",

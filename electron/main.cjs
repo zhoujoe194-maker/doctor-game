@@ -65,7 +65,7 @@ else {
       } catch { return new Response(null, { status: 404 }); }
     });
     win = new BrowserWindow({
-      width: 1440, height: 960, minWidth: 760, minHeight: 620, backgroundColor: '#f5f6f2', title: 'doctorgame · 灵敏度实验室',
+      width: 1440, height: 960, minWidth: 760, minHeight: 620, backgroundColor: '#0c0f12', title: 'doctorgame · 灵敏度实验室',
       webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false }
     });
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -102,12 +102,24 @@ else {
     handle('recording:finish', async (id, metadata) => {
       const item = active.get(validId(id));
       if (!item) throw new Error('Recording not active');
-      const data = { ...item, ...metadata, id, bytes: item.bytes, status: 'ready' };
+      // An empty or interrupted capture stays on disk for transparency, but it is
+      // never advertised as a ready recording.
+      const data = { ...item, ...metadata, id, bytes: item.bytes, status: metadata?.incomplete ? 'incomplete' : 'ready' };
       await fs.writeFile(indexPath(id), JSON.stringify(data)); active.delete(id); updateTray(); return data;
     });
     handle('recording:list', async () => {
       const files = (await fs.readdir(recordingDir)).filter(n => /^[0-9a-f-]+\.json$/.test(n));
-      const items = await Promise.all(files.map(n => fs.readFile(path.join(recordingDir, n), 'utf8').then(JSON.parse).catch(() => null)));
+      // JSON metadata is not the source of truth for file size: append() only
+      // updates memory, so a crash leaves bytes:0/status:recording even though the
+      // WebM is recoverable. Report the on-disk size as a runtime-only field and
+      // leave the stored metadata untouched.
+      const items = await Promise.all(files.map(async n => {
+        const item = await fs.readFile(path.join(recordingDir, n), 'utf8').then(JSON.parse).catch(() => null);
+        if (!item) return null;
+        try { item.actualBytes = (await fs.stat(recordingPath(item.id))).size; } catch { item.actualBytes = null; }
+        item.active = active.has(item.id);
+        return item;
+      }));
       return items.filter(Boolean).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     });
     handle('recording:folder', () => shell.openPath(recordingDir));
@@ -115,7 +127,7 @@ else {
     const pixels = Buffer.alloc(22 * 22 * 4);
     for (let y = 0; y < 22; y++) for (let x = 0; x < 22; x++) {
       const distance = Math.hypot(x - 10.5, y - 10.5);
-      if ((distance > 6 && distance < 8) || ((x === 10 || x === 11 || y === 10 || y === 11) && distance > 4)) pixels.set([80, 122, 101, 255], (y * 22 + x) * 4);
+      if ((distance > 6 && distance < 8) || ((x === 10 || x === 11 || y === 10 || y === 11) && distance > 4)) pixels.set([70, 216, 215, 255], (y * 22 + x) * 4);
     }
     const trayImage = nativeImage.createFromBitmap(pixels, { width: 22, height: 22 });
     if (process.platform === 'darwin') trayImage.setTemplateImage(true);
