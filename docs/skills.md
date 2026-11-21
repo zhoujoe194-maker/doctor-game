@@ -8,6 +8,8 @@
 
 | Skill | 来源 | 在本项目中的用途 |
 | --- | --- | --- |
+| `find-skills` | `vercel-labs/skills` | 新任务出现能力缺口时搜索候选，与已安装项比较并核对来源 |
+| `grill-me`、`grilling` | `mattpocock/skills` | 主动发起产品评审时使用。前者是入口，后者实现提问，可用来确定首测玩家和一次复盘的成功标准 |
 | `frontend-design` | Anthropic / `anthropics/skills` | 把工作台、回放和报告设计成统一的桌面工具，按本项目方向使用颜色、字体和间距 |
 | `game-ui-ux` | `gamedev-skills/awesome-gamedev-agent-skills` | 让录制、回放与片段确认顺手，检查窗口缩放和键盘焦点 |
 | `web-design-guidelines` | Vercel / `vercel-labs/agent-skills` | 检查键盘操作、表单、焦点、错误提示与可访问性 |
@@ -71,11 +73,19 @@ npx --yes agent-browser --help
 | [obra/superpowers](https://github.com/obra/superpowers) | `22f0b463e7a5e579904dd6211a520321035526f7` |
 | [gamedev-skills/awesome-gamedev-agent-skills](https://github.com/gamedev-skills/awesome-gamedev-agent-skills) | `c6ca6c41c839b68319ffc08430b99ab768debc32` |
 | [pedronauck/skills](https://github.com/pedronauck/skills) | `93655db210f1860822215d5a9bd86f580ffb1239` |
+| [vercel-labs/skills](https://github.com/vercel-labs/skills) | `57217cf86ba38148a57af9e90d14a4c049558330` |
+| [mattpocock/skills](https://github.com/mattpocock/skills) | `abeeaf95660ba9e8b7c753eb38f441ca707a8823` |
 
 第三方声明及可取得的许可证副本在 `.agents/THIRD_PARTY_NOTICES.md` 与
 `.agents/licenses/`。Skill 文件不属于 Windows 运行包的打包白名单。
 
 ## 桌面改版 skills 核验
+
+2026-11-21 玩家流程审查：从应用提交 `14d2a09` 的 9 项与 skills 分支
+`26070d3` 的 12 项比较，原 9 项无内容差异；同步新增 3 项及来源锁、许可证、说明。
+`npx --yes skills@1.9.0 list -a codex` 实际退出 0，识别 12 个项目 skills。
+离线首次尝试因 npm 未缓存失败，联网执行成功。此轮优先采用 frontend-design 和
+game-ui-ux；没有能力缺口，不额外安装 skill。以下 9 项结果是上一轮的历史记录。
 
 安装器识别出全部 9 项项目级 Codex skills，状态均为 `tracked`。内容哈希与
 来源提交已核对。新增 3 项中的 12 个文件与固定版本的上游 Git 文件一致。

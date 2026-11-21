@@ -18,6 +18,8 @@ task needs it; do not load every skill for every task.
 
 | Task | Skill |
 | --- | --- |
+| Find missing project capabilities when requested | `find-skills` (compare with the lock before adding anything) |
+| User-requested product or design interview | `grill-me` delegates to `grilling`. If skill delegation is unavailable, read the adjacent grilling/SKILL.md directly. |
 | Targeted visual or layout work | `frontend-design` |
 | Game-tool screen flow, window resizing, and keyboard focus in replay | `game-ui-ux` |
 | Interaction, keyboard, form, and accessibility review | `web-design-guidelines` |

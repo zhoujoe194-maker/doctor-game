@@ -6,6 +6,8 @@ development use. Their source commits and content hashes are recorded in
 
 | Installed directory | Upstream source | License evidence |
 | --- | --- | --- |
+| `skills/find-skills` | [Vercel Skills](https://github.com/vercel-labs/skills/tree/57217cf86ba38148a57af9e90d14a4c049558330/skills/find-skills) | MIT. See [LICENSE](licenses/vercel-skills-LICENSE.txt). |
+| `skills/grill-me`, `skills/grilling` | [Matt Pocock's skills](https://github.com/mattpocock/skills/tree/abeeaf95660ba9e8b7c753eb38f441ca707a8823/skills/productivity) | MIT. See [LICENSE](licenses/mattpocock-skills-LICENSE.txt). |
 | `skills/frontend-design` | [Anthropic skills](https://github.com/anthropics/skills/tree/e4bb5d960d87126ff3b3a8af1a104b7db67560ba/skills/frontend-design) | Apache-2.0; original [LICENSE.txt](skills/frontend-design/LICENSE.txt) included |
 | `skills/web-design-guidelines` | [Vercel agent skills](https://github.com/vercel-labs/agent-skills/tree/1a2c79d4e6c4a2283dc2c614b6538cbe1ed5ca62/skills/web-design-guidelines) | Upstream [README](https://github.com/vercel-labs/agent-skills/blob/1a2c79d4e6c4a2283dc2c614b6538cbe1ed5ca62/README.md) states MIT; no root LICENSE file is present in that source snapshot |
 | `skills/playwright-cli` | [Microsoft Playwright CLI](https://github.com/microsoft/playwright-cli/tree/99c4eb2566153f37fb104e5dbf894fb9c785e17d/skills/playwright-cli) | Apache-2.0; original [LICENSE](licenses/playwright-cli-LICENSE.txt) included |
