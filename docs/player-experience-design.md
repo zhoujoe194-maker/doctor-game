@@ -36,10 +36,36 @@ doctorgame 借鉴的两点：
 
 这两点直接解决审查表 P2“回访主任务被新录制区挤出首屏、1280×720 下‘继续复盘’在 y=705.53、
 按钮被截断”：现在首屏第一张卡就是上一局，1280×720 下继续按钮完整位于视口内
-（`artifacts/player-experience/dsh-after/returning-1280.png`）。
+（主题截图见 `artifacts/player-experience/dsh-aimlabs-theme/08-returning-1440x900.png` / `11-returning-1280x720.png`；1280×720 边界由 `tests/ui/player-experience.spec.js:72` 继续覆盖）。
 
-保留森林绿 `#192a23`、浅绿 `#c2f279`、中文界面与既有字体/图标；没有复制 Aimlabs 的排行榜、
-商城、背景插图或装饰网格，也没有新增无关功能。
+用户 2026-11-21 的新产品决定覆盖此前“保留森林绿”的约束：整个应用改用官方 Aimlabs Play 2.0
+图（Play 页，不是结果页）的深灰/炭黑背景、青蓝强调色、浅色正文色系；不保留浅绿主按钮或森林绿底。
+没有复制 Aimlabs 商标、排行榜、商城、背景插图或装饰网格，也没有新增无关功能。
+
+### 最终配色（2026-11-21）
+
+取自官方 Play 图的色系（深灰/炭黑为主，青蓝只给操作与选中态）：
+
+| Token | 值 | 用途 |
+| --- | --- | --- |
+| `--canvas` / `--forest` | `#0c0f12` / `#10151a` | 应用画布 / 侧栏与录制主区 |
+| `--surface` / `--subtle` | `#151b20` / `#1e272e` | 卡片、表单、悬停表面 |
+| `--ink` / `--muted` | `#eef4f6` / `#9aa8b0` | 正文 / 辅助文字 |
+| `--accent` / `--accent-hover` | `#46d8d7` / `#6ae6e4` | 主操作、选中态、焦点、链接 |
+| `--accent-ink` | `#061315` | 青蓝按钮上的深色文字 |
+| `--amber` / `--amber-surface` | `#f2c56b` / `#2b2417` | 警告（如默认档案待核对） |
+| `--danger` / `--error-surface` | `#ff6b66` / `#2a1517` | 危险（停止/错误），保持语义区分 |
+| `--blue` / `--blue-surface` | `#7fb8ff` / `#142430` | 信息性分类（如移动不足） |
+| `--stage` | `#050709` | 视频舞台；视频本身不染色、不叠滤镜 |
+
+- 主操作、选中态、时间线选中标记、链接、焦点环统一使用青蓝色；`--green`、`--forest` 等旧变量名
+  为兼容现有组件保留，但值已改为暗色/青蓝色系。
+- 成功/提示、警告、危险仍分别使用青蓝、琥珀、珊瑚红语义色；disabled 降低不透明度但保持可读。
+- 品牌 `assets/mark.svg`、`index.html` 的 `theme-color`、Electron 窗口初始背景与托盘色同步更新；
+  品牌名称、十字准星图形结构和中文界面不变。
+- 视频预览、录制预览和复盘视频不加 `filter` 或颜色叠加；只调整周边容器与控件。
+- 布局与信息层级不变：前述“继续上一局”、首访开始录制/导入、录制停止入口、建议原因、零候选恢复
+  仍与审查表 P1/P2 任务一一对应，具体映射见下表。
 
 ## 设计决定（对应审查表玩家任务）
 
@@ -93,6 +119,7 @@ doctorgame 借鉴的两点：
 | `npm test`（11 项算法测试） | 通过；算法/样本资格代码未改。 |
 | `npm run test:ui`（12 项浏览器测试） | 通过；原有 5 项 + `tests/ui/player-experience.spec.js` 7 项（含新增的浏览器 chunks 恢复与损坏档案回退）。 |
 | `npx playwright test tests/ui/player-experience.spec.js` | 7 项通过：首访核对/保存返回、建议原因就近、零候选恢复+回访 1280×720、无帧取消/超时/恢复、真 0 文件不可分析、未完成 chunks 恢复、损坏档案回退待核对。 |
+| 主题截图 + `AxeBuilder`（本机浏览器脚本，未入库） | 11 个状态：首访、档案、复盘示例、空记录、选窗弹窗、录制、复盘、回访、记录、390px 窄屏、1280×720 回访；最终 **0 axe violations**，截图在 `artifacts/player-experience/dsh-aimlabs-theme/`。 |
 | `node tests/electron-recovery.mjs`（本机经测试用 `--no-sandbox` 包装） | 通过：真实 WebM（本次样例 268881 字节，约 268 KB）+ 陈旧 `bytes:0/status:recording/无 duration` 元数据，重启后可播放并完成分析，重启后继续复盘，原文件 SHA-256 与 JSON 逐字节不变；`artifacts/electron-recovery/dsh-sandbox/result.json`。 |
 | `node tests/electron-smoke.mjs` | 本机直接运行被 DSH 环境的 macOS sandbox 阻止（Chromium `sandbox initialization failed: Operation not permitted`），不是应用回归。改用仅测试用的 Electron 启动包装（`--no-sandbox`，应用代码与安全配置未改）后通过：隔离 data、导入/回放/确认/重启保留均通过，`result.json` 为 `passed:true`，产物在 `artifacts/electron/dsh-sandbox/`。 |
 | `tests/player-flow-audit.mjs`（负责人脚本的未修改副本 + 同一测试用 `--no-sandbox` 包装） | 通过，三组检查全部通过；after 截图与 `audit.json` 在 `artifacts/player-experience/dsh-after/`。原脚本、`docs/player-experience-audit.md`、`before` 目录未修改。 |
@@ -107,14 +134,19 @@ doctorgame 借鉴的两点：
 - 建议原因：`recommend()` 原始原因在建议数字旁可见，“查看依据与复测”可展开。
 - 零候选：提示、零候选恢复块、手动标记区直接可见、可标记事件、取消分析保留录像的既有路径由负责人脚本复核。
 
-截图（本轮自测产物，非负责人验收）：
+截图（本轮自测产物，非负责人验收；`dsh-after/` 是旧森林绿配色，已被新主题截图取代）：
 
-- `artifacts/player-experience/dsh-after/first-use.png`
-- `artifacts/player-experience/dsh-after/recording.png`
-- `artifacts/player-experience/dsh-after/report.png`
-- `artifacts/player-experience/dsh-after/returning.png`
-- `artifacts/player-experience/dsh-after/returning-1280.png`
-- `artifacts/player-experience/dsh-after/zero-candidates.png`
+- `artifacts/player-experience/dsh-aimlabs-theme/01-first-use-1440x900.png`
+- `artifacts/player-experience/dsh-aimlabs-theme/02-profile-1440x900.png`
+- `artifacts/player-experience/dsh-aimlabs-theme/03-demo-report-1440x900.png`
+- `artifacts/player-experience/dsh-aimlabs-theme/04-history-empty-1440x900.png`
+- `artifacts/player-experience/dsh-aimlabs-theme/05-source-dialog-1440x900.png`
+- `artifacts/player-experience/dsh-aimlabs-theme/06-recording-1440x900.png`
+- `artifacts/player-experience/dsh-aimlabs-theme/07-report-recording-1440x900.png`
+- `artifacts/player-experience/dsh-aimlabs-theme/08-returning-1440x900.png`
+- `artifacts/player-experience/dsh-aimlabs-theme/09-history-recording-1440x900.png`
+- `artifacts/player-experience/dsh-aimlabs-theme/10-returning-mobile-390x844.png`
+- `artifacts/player-experience/dsh-aimlabs-theme/11-returning-1280x720.png`
 
 ## 未解决与限制
 
@@ -127,5 +159,6 @@ doctorgame 借鉴的两点：
   `contextIsolation`、`sandbox`、`nodeIntegration` 配置未变。
 - 截图中的视频均为程序生成的合成画面（带水印），不代表真实对局，也不证明检测准确率或灵敏度改善。
 - 真实游戏窗口的“第一帧”等待时间、窗口最小化/恢复、托盘停止仍需 Windows/实际游戏窗口复核。
+- 本轮只做配色/可读性调整，未改变布局与信息层级；但 Electron 本机仍受 DSH sandbox 限制，窗口初始背景/托盘色未在原生 Electron 截图复核。
 - 中断恢复回归使用合成 WebM + 人工写入的陈旧元数据来模拟崩溃现场，不是原生进程崩溃复现，也不能替代 Windows 实机。
 - `actualBytes` 是列表时计算的运行时字段，不进入持久化元数据；因此恢复后的 JSON 仍保留 `bytes:0/status:recording` 是预期行为，不是迁移失败。

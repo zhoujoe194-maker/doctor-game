@@ -65,7 +65,7 @@ else {
       } catch { return new Response(null, { status: 404 }); }
     });
     win = new BrowserWindow({
-      width: 1440, height: 960, minWidth: 760, minHeight: 620, backgroundColor: '#f5f6f2', title: 'doctorgame · 灵敏度实验室',
+      width: 1440, height: 960, minWidth: 760, minHeight: 620, backgroundColor: '#0c0f12', title: 'doctorgame · 灵敏度实验室',
       webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false }
     });
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -127,7 +127,7 @@ else {
     const pixels = Buffer.alloc(22 * 22 * 4);
     for (let y = 0; y < 22; y++) for (let x = 0; x < 22; x++) {
       const distance = Math.hypot(x - 10.5, y - 10.5);
-      if ((distance > 6 && distance < 8) || ((x === 10 || x === 11 || y === 10 || y === 11) && distance > 4)) pixels.set([80, 122, 101, 255], (y * 22 + x) * 4);
+      if ((distance > 6 && distance < 8) || ((x === 10 || x === 11 || y === 10 || y === 11) && distance > 4)) pixels.set([70, 216, 215, 255], (y * 22 + x) * 4);
     }
     const trayImage = nativeImage.createFromBitmap(pixels, { width: 22, height: 22 });
     if (process.platform === 'darwin') trayImage.setTemplateImage(true);

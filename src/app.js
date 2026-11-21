@@ -159,9 +159,9 @@ function recentsRail() {
   const item = state.recordings.find(usableRecording) || state.recordings[0];
   if (!item) return '';
   const report = usableRecording(item) ? loadReport(item.id) : null;
-  return '<div class="recents-rail" aria-label="最近一局"><div class="recents-rail-head"><span>最近一局</span><button class="rail-more" data-nav="history" aria-label="查看全部对局记录">全部记录</button></div>' +
+  return '<div class="recents-rail" aria-label="最近一局"><div class="recents-rail-head"><span>最近一局</span><button class="rail-more" data-nav="history">全部记录</button></div>' +
     (usableRecording(item) ?
-      '<div class="rail-card"><div class="rail-thumb"><video id="rail-preview" muted playsinline preload="metadata" aria-label="最近一局缩略画面"></video><span class="rail-duration">' + time(item.duration) + '</span></div><p class="rail-title">' + esc(item.title || '游戏录像') + '</p><button class="button small secondary rail-open" data-recording="' + esc(item.id) + '" aria-label="' + (report ? '打开最近一局的复盘报告' : '分析最近一局的录像') + '">' + icon('play') + (report ? '查看报告' : '打开并分析') + '</button></div>' :
+      '<div class="rail-card"><div class="rail-thumb"><video id="rail-preview" muted playsinline preload="metadata" aria-label="最近一局缩略画面"></video><span class="rail-duration">' + time(item.duration) + '</span></div><p class="rail-title">' + esc(item.title || '游戏录像') + '</p><button class="button small secondary rail-open" data-recording="' + esc(item.id) + '">' + icon('play') + (report ? '查看报告' : '打开并分析') + '</button></div>' :
       '<div class="rail-card"><div class="rail-thumb"><span class="no-video">' + icon('record') + '</span></div><p class="rail-title">上次录制没有画面</p><button class="button small secondary rail-open" id="retry-capture-rail">重新录制</button></div>') +
     '</div>';
 }
@@ -313,8 +313,8 @@ function methodView() {
 function renderEvidence({ seek = false } = {}) {
   const r = state.report, e = r.events[state.eventIndex], stage = $('#evidence-stage'), controls = $('#evidence-controls');
   if (r.demo) {
-    stage.innerHTML = '<div class="demo-label">合成示例 · 非游戏画面</div><svg viewBox="0 0 640 360" aria-label="合成的目标轨迹示意图" role="img"><path d="M305 180h30M320 165v30" stroke="#f2f5ed" stroke-width="2"/>' +
-      (e ? '<polyline points="' + e.points.map(p => p.x * 640 + ',' + p.y * 360).join(' ') + '" fill="none" stroke="#c2f279" stroke-width="2"/>' + e.points.map((p, i) => '<circle cx="' + p.x * 640 + '" cy="' + p.y * 360 + '" r="' + (i ? 3 : 6) + '" fill="#c2f279"/>').join('') : '') + '</svg>';
+    stage.innerHTML = '<div class="demo-label">合成示例 · 非游戏画面</div><svg viewBox="0 0 640 360" aria-label="合成的目标轨迹示意图" role="img"><path class="demo-crosshair" d="M305 180h30M320 165v30" stroke-width="2"/>' +
+      (e ? '<polyline class="demo-trace" points="' + e.points.map(p => p.x * 640 + ',' + p.y * 360).join(' ') + '" stroke-width="2"/>' + e.points.map((p, i) => '<circle class="demo-point" cx="' + p.x * 640 + '" cy="' + p.y * 360 + '" r="' + (i ? 3 : 6) + '"/>').join('') : '') + '</svg>';
   } else if (state.mediaUrl) {
     if (!$('#replay')) {
       stage.innerHTML = '<video id="replay" controls muted playsinline preload="auto" aria-label="游戏录像回放"></video>';
@@ -344,7 +344,7 @@ function renderEvidence({ seek = false } = {}) {
   $('#chart-description').textContent = e?.motion ? '观察到 ' + e.motion.reversals + ' 次方向反转。角色移动与后坐力也会影响画面；这不是手部平滑度，也不直接用于调整灵敏度。' :
     e?.kind === 'observation' ? '没有可靠的轨迹测量，手动片段不计入灵敏度建议的有效样本。' : '越过零线只是候选线索。确认时请排除压枪、观战、切换目标、明显敌人移动与错误轮廓。';
   const errors = e?.error || [], max = Math.max(5, ...errors.map(Math.abs));
-  plot.innerHTML = errors.length ? '<line x1="34" y1="66" x2="625" y2="66" stroke="#8f9b88" stroke-dasharray="3 5"/><text x="4" y="70" fill="#58665b" font-size="12">0</text><polyline points="' + errors.map((v, i) => (34 + i / Math.max(1, errors.length - 1) * 590) + ',' + (66 - v / max * 49)).join(' ') + '" fill="none" stroke="#426c2f" stroke-width="2.5"/>' : '';
+  plot.innerHTML = errors.length ? '<line class="plot-axis" x1="34" y1="66" x2="625" y2="66" stroke-dasharray="3 5"/><text class="plot-label" x="4" y="70">0</text><polyline class="plot-trace" points="' + errors.map((v, i) => (34 + i / Math.max(1, errors.length - 1) * 590) + ',' + (66 - v / max * 49)).join(' ') + '"/>' : '';
   if (!e) return;
   $('#review-context').onchange = event => { $('#scene-guidance-text').textContent = sceneGuidance[event.target.value]; };
   $('#confirm-event').onclick = () => {
