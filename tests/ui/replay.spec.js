@@ -54,7 +54,7 @@ test('import, clip seek, review without losing playback, timeline and saved hist
   }
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.getByRole('button', { name: '工作台', exact: true }).click();
+  await page.getByRole('button', { name: '录制', exact: true }).click();
   expect(await page.evaluate(() => window.scrollY)).toBe(0);
   await expect(page.getByRole('button', { name: '继续复盘' })).toBeVisible();
   await expect(page.locator('#recent-preview')).toHaveJSProperty('videoWidth', 1280);
@@ -75,7 +75,7 @@ test('keyboard reaches recording, modal cancellation returns focus, small window
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: `artifacts/beta/workspace-${width}x${height}.png`, fullPage: true });
   }
-  await page.getByRole('button', { name: '工作台', exact: true }).click();
+  await page.getByRole('button', { name: '录制', exact: true }).click();
   for (let i = 0; i < 15 && !await page.locator('#start-recording').evaluate(el => el === document.activeElement); i++) await page.keyboard.press('Tab');
   await expect(page.locator('#start-recording')).toBeFocused();
   await page.keyboard.press('Enter');

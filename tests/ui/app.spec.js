@@ -9,7 +9,7 @@ test('workspace, profile, review, recovery and responsive accessibility', async 
   await mkdir('artifacts', { recursive: true });
   await page.screenshot({ path: 'artifacts/workspace-desktop.png', fullPage: true });
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
-  await page.getByRole('button', { name: '玩家档案', exact: true }).click();
+  await page.getByRole('button', { name: '档案', exact: true }).click();
   await page.getByLabel('手腕为主').check();
   await page.getByLabel('抓握', { exact: false }).check();
   await page.getByRole('spinbutton', { name: '鼠标左右可移动的总宽度' }).fill('22');
@@ -20,11 +20,11 @@ test('workspace, profile, review, recovery and responsive accessibility', async 
   await page.screenshot({ path: 'artifacts/profile-desktop.png', fullPage: true });
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.reload();
-  await page.getByRole('button', { name: '玩家档案', exact: true }).click();
+  await page.getByRole('button', { name: '档案', exact: true }).click();
   await expect(page.getByLabel('手腕为主')).toBeChecked();
   await expect(page.getByLabel('抓握', { exact: false })).toBeChecked();
-  await page.getByRole('button', { name: '工作台', exact: true }).click();
-  await page.getByRole('button', { name: '查看合成示例' }).click();
+  await page.getByRole('button', { name: '录制', exact: true }).click();
+  await page.locator('#load-demo').click();
   await expect(page.getByRole('heading', { name: '复盘示例' })).toBeVisible();
   await page.getByText('建议依据与下一次复测', { exact: true }).click();
   await expect(page.getByText('这是合成轨迹，用于体验回放和报告，不是你的实战数据。')).toBeVisible();
@@ -51,12 +51,12 @@ test('workspace, profile, review, recovery and responsive accessibility', async 
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   for (const width of [768, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
-    await page.getByRole('button', { name: '工作台', exact: true }).click();
+    await page.getByRole('button', { name: '录制', exact: true }).click();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
     await page.evaluate(() => { document.activeElement?.blur(); window.scrollTo(0, 0); });
     if (width === 390) await page.screenshot({ path: 'artifacts/workspace-mobile.png', fullPage: true });
-    await page.getByRole('button', { name: '玩家档案', exact: true }).click();
+    await page.getByRole('button', { name: '档案', exact: true }).click();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   }
   await page.emulateMedia({ reducedMotion: 'reduce' });

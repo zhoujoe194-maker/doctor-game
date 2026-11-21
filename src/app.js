@@ -52,7 +52,7 @@ const paths = {
 const icon = name => `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.target}</svg>`;
 const initialProfile = loadInitialProfile();
 let profile = initialProfile.profile;
-const state = { page: 'workspace', profile, profileConfirmed: initialProfile.confirmed, recordings: [], capture: null, capturePhase: null, captureAbort: null, reselectCapture: false, busy: false, report: null, item: null, mediaUrl: null, eventIndex: 0, filter: 'all', progress: null, abort: null, notice: null, playbackRate: 1, clipEnd: null, homePreviewUrl: null, railPreviewUrl: null };
+const state = { page: 'workspace', profile, profileConfirmed: initialProfile.confirmed, recordings: [], capture: null, capturePhase: null, captureAbort: null, reselectCapture: false, busy: false, report: null, item: null, mediaUrl: null, eventIndex: 0, filter: 'all', progress: null, abort: null, notice: null, playbackRate: 1, clipEnd: null, homePreviewUrl: null, thumbnailObserver: null, thumbnailQueue: [], thumbnailActive: 0, thumbnailGeneration: 0 };
 let elapsedTimer;
 
 function notify(message, error = false) {
@@ -65,105 +65,118 @@ function releaseMedia() { if (state.mediaUrl?.startsWith('blob:')) URL.revokeObj
 async function setBusy(value) { state.busy = value; await window.doctorgame?.setBusy(value); }
 async function refreshRecordings() { state.recordings = await storage.list(); }
 function navigate(page) { state.page = page; state.notice = null; render(); $('#main').focus({ preventScroll: true }); window.scrollTo(0, 0); }
-const navItems = [['workspace', 'grid', '工作台'], ['history', 'play', '对局记录'], ['profile', 'sliders', '玩家档案'], ['method', 'book', '分析方法']];
+const navItems = [['workspace', '录制'], ['history', '对局记录'], ['profile', '档案'], ['method', '帮助']];
+const primaryNav = navItems.slice(0, 2), utilityNav = navItems.slice(2);
 
+function navButton([page, label], activePage) {
+  const active = activePage === page;
+  return '<button class="nav-link' + (active ? ' is-active' : '') + '" data-nav="' + page + '"' + (active ? ' aria-current="page"' : '') + '>' + label + '</button>';
+}
+function topNavigation(activePage) {
+  return '<header class="topnav"><a class="brand" href="#workspace" data-nav="workspace" aria-label="doctorgame 首页"><img src="./assets/mark.svg" alt="" width="28" height="28"><span>doctorgame</span></a>' +
+    '<nav class="mainnav" aria-label="主导航">' + primaryNav.map(item => navButton(item, activePage)).join('') + '</nav>' +
+    '<div class="nav-tools"><span class="local-chip">' + icon('shield') + '本地 · 无音频</span>' + utilityNav.map(item => navButton(item, activePage)).join('') + '</div></header>';
+}
+function globalRecordStrip() {
+  if (state.page === 'workspace') return '';
+  if (state.capturePhase === 'requesting' || state.capturePhase === 'waiting') {
+    return '<div class="record-strip waiting" role="status"><span class="wait-dot"></span><strong>' + (state.capturePhase === 'requesting' ? '正在打开窗口选择…' : '正在等待窗口画面') + '</strong><span class="record-strip-note">收到画面后才开始录制</span><div class="record-strip-actions">' +
+      (state.capturePhase === 'waiting' ? '<button class="button small secondary" id="cancel-capture-banner">取消等待</button><button class="button small secondary" id="reselect-capture-banner">重新选择窗口</button>' : '') + '</div></div>';
+  }
+  if (state.capture) {
+    return '<div class="record-strip" role="status"><span class="record-dot"></span><strong>正在录制</strong><span id="elapsed-global" class="record-strip-time">00:00</span><span class="record-strip-note">关闭窗口后在托盘继续</span><div class="record-strip-actions"><button class="button small danger" id="stop-banner">结束并分析</button></div></div>';
+  }
+  return '';
+}
+function noticeMarkup() {
+  return '<div id="notice" class="notice ' + (state.notice?.error ? 'error' : '') + '" ' + (state.notice ? '' : 'hidden') + '>' + esc(state.notice?.message) + '</div>';
+}
+function pageBody() {
+  if (state.busy && !state.capture && !state.capturePhase) return progressView();
+  if (state.page === 'workspace') return workspaceView();
+  if (state.page === 'history') return historyView();
+  if (state.page === 'profile') return profileView();
+  if (state.page === 'method') return helpView();
+  return reportView();
+}
 function render() {
   $('#replay')?.pause();
+  resetThumbnailLoader();
   if (state.homePreviewUrl?.startsWith('blob:')) URL.revokeObjectURL(state.homePreviewUrl);
-  if (state.railPreviewUrl?.startsWith('blob:')) URL.revokeObjectURL(state.railPreviewUrl);
-  state.homePreviewUrl = null; state.railPreviewUrl = null;
-  const current = navItems.find(n => n[0] === state.page);
-  const waiting = state.capturePhase === 'waiting';
-  $('#app').innerHTML = '<aside class="sidebar" aria-label="工作空间导航">' +
-    '<a class="brand" href="#workspace" data-nav="workspace" aria-label="doctorgame 首页"><img src="./assets/mark.svg" alt="" width="32" height="32"><span>doctorgame</span></a>' +
-    '<nav aria-label="主导航">' + navItems.map(([page, glyph, title]) => '<button class="nav-item ' + (state.page === page || (state.page === 'report' && page === 'history') ? 'active' : '') + '" data-nav="' + page + '" aria-label="' + title + '" ' + (state.page === page ? 'aria-current="page"' : '') + '>' + icon(glyph) + '<span>' + title + '</span></button>').join('') + '</nav>' +
-    recentsRail() +
-    '<div class="local-status">' + icon('shield') + '<span>录像保存在本机<small>不录制音频</small></span></div></aside>' +
-    '<div class="app-body"><header class="topbar"><span>' + (current?.[2] || '赛后复盘') + '</span><span>无畏契约 <span class="version">桌面测试版</span></span></header>' +
-    '<main id="main" tabindex="-1"><div id="notice" class="notice ' + (state.notice?.error ? 'error' : '') + '" ' + (state.notice ? '' : 'hidden') + '>' + esc(state.notice?.message) + '</div>' +
-    (waiting && state.page !== 'workspace' ? '<div class="recording-banner waiting"><span class="wait-dot"></span>正在等待窗口画面 <button class="button small secondary" id="cancel-capture-banner">取消等待</button></div>' : '') +
-    (state.capture && state.page !== 'workspace' ? '<div class="recording-banner"><span class="record-dot"></span>正在录制 <button class="button small danger" id="stop-banner">结束并分析</button></div>' : '') +
-    (state.busy && !state.capture && !state.capturePhase ? progressView() : state.page === 'workspace' ? workspaceView() : state.page === 'history' ? historyView() : state.page === 'profile' ? profileView() : state.page === 'method' ? methodView() : reportView()) +
-    '</main><footer class="app-footer"><span>doctorgame</span><span>' + (window.doctorgame ? '本地桌面版' : '浏览器预览 · 录制时请保持页面打开') + '</span></footer></div>' +
+  state.homePreviewUrl = null;
+  const activePage = state.page === 'report' ? 'history' : state.page;
+  $('#app').innerHTML = '<div class="app-shell">' + topNavigation(activePage) + globalRecordStrip() +
+    '<main id="main" tabindex="-1">' + noticeMarkup() + pageBody() + '</main>' +
+    '<footer class="app-footer"><span>doctorgame · 本地优先</span><span>录像与报告仅保存在本机 · ' + (window.doctorgame ? '桌面版' : '浏览器预览') + '</span></footer></div>' +
     '<input id="video-file" type="file" hidden accept="video/mp4,video/webm,video/x-matroska,.webm,.mp4,.mkv" aria-label="导入游戏录像">' +
-    '<dialog id="source-dialog" aria-labelledby="source-title"><div class="dialog-head"><h2 id="source-title">选择游戏窗口</h2><button id="close-source" class="icon-button" aria-label="关闭窗口选择">×</button></div><p class="muted">选择完整的游戏窗口，准星应位于画面中央。</p><div id="source-list"></div></dialog>';
+    '<dialog id="source-dialog" aria-labelledby="source-title"><div class="dialog-head"><div><h2 id="source-title">选择游戏窗口</h2><p class="muted">选择完整的游戏窗口，准星应位于画面中央。</p></div><button id="close-source" class="icon-button" aria-label="关闭窗口选择">×</button></div><div id="source-list"></div></dialog>';
   bind();
   if (state.page === 'report' && state.report && !state.busy) refreshReport({ seek: true });
   if (state.capture && state.page === 'workspace') {
     const preview = $('#live-preview');
     if (preview) { preview.srcObject = state.capture.stream; preview.play().catch(() => {}); tick(); }
   } else if (state.page === 'workspace' && !state.busy) loadRecentPreview();
-  if (!state.busy) loadRailPreview();
+  if (state.page === 'history' && !state.busy) observeLibraryThumbnails();
 }
 
 function workspaceView() {
   const recording = Boolean(state.capture), waiting = state.capturePhase === 'waiting' || state.capturePhase === 'requesting';
-  const latestUsable = state.recordings.find(usableRecording);
-  const latest = latestUsable || state.recordings[0];
+  if (waiting) return waitingView();
+  if (recording) return captureView();
+  const latest = state.recordings.find(usableRecording) || state.recordings[0];
   const returning = Boolean(state.recordings.length);
-  return '<section class="page-heading"><div><h1>录制与复盘</h1><p>' + (returning ? '先继续上一局，或录一段新的对局。' : '选择一段对局，回看你的瞄准过程。') + '</p></div></section>' +
-    (waiting ? waitingView() : recording ? captureView() : returning ? recentSessionView(latest) + captureCompactView() : firstUseView()) +
-    profileStripView() +
-    (returning ? '' : emptyRecentView()) +
-    '<p class="bottom-note">' + icon('info') + '测试版会产生候选误检；回放确认后再判断是否试用新的灵敏度。</p>';
+  return returning ? returningHomeView(latest) : firstUseView();
+}
+
+function profileSummaryCard() {
+  const p = state.profile;
+  const stateClass = state.profileConfirmed ? 'confirmed' : 'unconfirmed';
+  const stateText = state.profileConfirmed ? '档案已保存' : '默认值 · 待核对';
+  return '<aside class="settings-card" aria-label="当前玩家档案"><div class="card-head"><h2>当前设置</h2><button class="text-button" data-nav="profile">编辑档案</button></div>' +
+    '<dl class="setting-list"><div><dt>鼠标 DPI</dt><dd>' + p.dpi + '</dd></div><div><dt>游戏内灵敏度</dt><dd>' + p.sensitivity.toFixed(3) + '</dd></div><div><dt>瞄准习惯</dt><dd>' + HABIT_LABELS.aimStyle[p.aimStyle] + ' / ' + HABIT_LABELS.grip[p.grip] + '</dd></div></dl>' +
+    '<span class="profile-state ' + stateClass + '">' + stateText + '</span>' +
+    (state.profileConfirmed ? '' : '<p class="profile-verify" role="note">' + icon('info') + '开始录制前请核对 DPI 和游戏内灵敏度；当前显示的是默认值。</p>') +
+    '<p class="card-note">旧报告仍显示录制当时的档案。</p></aside>';
 }
 
 function firstUseView() {
-  return '<section class="recording-home" aria-label="录制操作"><div class="recording-intro"><h2>录下一局，或导入已有录像</h2><p>手动选择窗口，结束后分析。录像和档案仅保存在本机。</p></div><div class="start-actions"><button class="button primary large" id="start-recording">' + icon('record') + '开始录制</button><button class="button secondary large" id="import-video">' + icon('upload') + '导入录像</button></div><p class="capture-note">支持 MP4 / WebM · 单个文件最多 2 GB · 不录制音频</p></section>';
+  return '<section class="page-head first-head"><div><h1>录制与复盘</h1><p>选择一段对局，回看你的瞄准过程。</p></div></section>' +
+    '<div class="home-grid home-first"><section class="capture-surface" aria-label="开始录制"><div class="capture-copy"><h2>录制一局</h2><p>选择一个完整的游戏窗口。录制在后台进行，画面和报告只保存在本机。</p></div>' +
+    '<div class="primary-actions"><button class="button primary large" id="start-recording">' + icon('record') + '开始录制</button><button class="button secondary large" id="import-video">' + icon('upload') + '导入录像</button></div>' +
+    '<ul class="fact-list"><li>手动选择窗口</li><li>不录制音频</li><li>结束后分析候选片段</li></ul>' +
+    '<div class="surface-foot"><button class="text-button" id="load-demo">没有录像？先看合成示例 ' + icon('arrow') + '</button><span>MP4 / WebM · 单文件最多 2 GB</span></div></section>' +
+    profileSummaryCard() + '</div>';
+}
+
+function nextSessionCard() {
+  return '<section class="next-session" aria-label="录制新对局"><div><h2>录下一局</h2><p>手动选择窗口，结束后分析。录像和档案只保存在本机。</p></div>' +
+    '<div class="next-actions"><button class="button primary" id="start-recording">' + icon('record') + '开始录制</button><button class="button secondary" id="import-video">' + icon('upload') + '导入录像</button></div></section>';
+}
+
+function returningHomeView(item) {
+  const usable = usableRecording(item);
+  if (!usable) {
+    return '<section class="home-grid home-first"><section class="recent-session no-footage session-surface" aria-label="最近一局"><div class="no-footage-panel"><span class="no-footage-label">上一段录像</span><h1>没有收到可回放画面</h1><p>磁盘上的录像文件为空（0 字节）。原文件与元数据仍保留在本机，可以重新选择窗口或导入另一段录像。</p><div class="recent-actions"><button class="button primary" id="retry-capture">' + icon('record') + '重新选择窗口</button><button class="button secondary" data-import-video>' + icon('upload') + '导入录像</button></div></div></section>' + profileSummaryCard() + '</section>';
+  }
+  const report = loadReport(item.id);
+  let result = null;
+  try { if (report) result = recommend(report.events, report.profile, { demo: false }); } catch { result = null; }
+  const pending = report ? report.events.filter(e => e.included && !e.reviewed).length : 0;
+  return '<div class="home-grid home-return"><section class="recent-session session-surface" aria-label="最近一局"><div class="session-media"><video id="recent-preview" muted playsinline preload="metadata" aria-label="上一局画面预览"></video><span class="media-time">' + time(item.duration) + '</span></div>' +
+    '<div class="session-info"><div class="session-meta"><span>上次录制</span><time>' + new Date(item.createdAt).toLocaleString('zh-CN') + '</time></div><h1>继续上一局</h1><h2 class="session-title">' + esc(item.title || '游戏录像') + '</h2>' +
+    (report ? '<p class="session-progress">已确认且可量化 <strong>' + result.reviewed + '</strong> / ' + MIN_REVIEWED + ' 起步样本 · 待确认 <strong>' + pending + '</strong> 个片段</p>' : '<p class="session-progress">' + (item.status === 'ready' ? '录像已保存，尚未分析。' : '录制中断，已写入的画面仍保留，可尝试恢复分析。') + '</p>') +
+    '<div class="session-actions"><button class="button primary" data-recording="' + esc(item.id) + '">' + icon('play') + (report ? '继续复盘' : '打开并分析') + '</button><button class="text-button" data-nav="history">全部记录 ' + icon('arrow') + '</button></div></div></section>' +
+    '<aside class="home-side">' + profileSummaryCard() + nextSessionCard() + '</aside></div>';
 }
 
 function waitingView() {
   const requesting = state.capturePhase === 'requesting';
-  return '<section class="recording-home is-waiting" aria-label="等待窗口画面"><div class="capture-actions"><div><h2><span class="wait-dot"></span>' + (requesting ? '正在打开窗口选择…' : '正在等待窗口画面…') + '</h2><p>' + (requesting ? '在系统窗口列表中选一个正在显示游戏画面的窗口。' : '已选择窗口。收到第一帧画面后才开始录制；没有画面不会保存空录像。') + '</p></div>' +
-    (requesting ? '' : '<div class="waiting-actions"><button class="button secondary" id="cancel-capture">取消等待</button><button class="button secondary" id="reselect-capture">重新选择窗口</button></div>') +
-    '</div></section>';
+  return '<section class="studio is-waiting" aria-label="等待窗口画面"><div class="waiting-panel"><span class="wait-dot"></span><h1>' + (requesting ? '正在打开窗口选择…' : '正在等待窗口画面…') + '</h1><p>' + (requesting ? '在系统窗口列表中选一个正在显示游戏画面的窗口。' : '已选择窗口。收到第一帧画面后才开始录制；没有画面不会保存空录像。') + '</p>' +
+    (requesting ? '' : '<div class="waiting-actions"><button class="button secondary" id="cancel-capture">取消等待</button><button class="button secondary" id="reselect-capture">重新选择窗口</button></div>') + '</div></section>';
 }
 
 function captureView() {
-  return '<section class="recording-home is-recording" aria-label="录制状态"><div class="capture-actions"><div><h2><span class="record-dot"></span> 正在录制 <span id="elapsed">00:00</span></h2><p>已收到窗口画面。可以返回游戏；关闭桌面窗口后仍在托盘录制。</p></div><button class="button danger" id="stop-recording">' + icon('stop') + '结束并分析</button></div><div class="capture-stage"><video id="live-preview" autoplay muted playsinline aria-label="正在录制的画面预览"></video></div></section>';
-}
-
-function profileStripView() {
-  const p = state.profile;
-  return '<section class="profile-strip" aria-label="本局玩家档案"><div><span>鼠标 DPI</span><strong>' + p.dpi + '</strong></div><div><span>游戏内灵敏度</span><strong>' + p.sensitivity.toFixed(3) + '</strong></div><div class="profile-habits"><span>瞄准习惯</span><strong>' + HABIT_LABELS.aimStyle[p.aimStyle] + ' / ' + HABIT_LABELS.grip[p.grip] + '</strong></div>' +
-    '<span class="profile-state ' + (state.profileConfirmed ? 'confirmed' : 'unconfirmed') + '">' + (state.profileConfirmed ? '档案已保存' : '默认值 · 待核对') + '</span>' +
-    '<button class="text-button" data-nav="profile" aria-label="编辑玩家档案">' + icon('sliders') + '编辑玩家档案</button></section>' +
-    (state.profileConfirmed ? '' : '<p class="profile-verify" role="note">' + icon('info') + '开始录制前请核对 DPI 和游戏内灵敏度；当前显示的是默认值。</p>');
-}
-
-function recentSessionView(item) {
-  const report = usableRecording(item) ? loadReport(item.id) : null;
-  let result = null;
-  try { if (report) result = recommend(report.events, report.profile, { demo: false }); } catch { result = null; }
-  const pending = report ? report.events.filter(e => e.included && !e.reviewed).length : 0;
-  return '<section class="recent-section" aria-label="最近一局"><div class="section-heading"><h2>继续上一局</h2><button class="text-button" data-nav="history">全部记录 ' + icon('arrow') + '</button></div>' +
-    (usableRecording(item) ?
-      '<div class="recent-session"><div class="recent-preview"><video id="recent-preview" muted playsinline preload="metadata" aria-label="最近一局画面预览"></video><span>' + time(item.duration) + '</span></div><div class="recent-description"><span class="muted">' + new Date(item.createdAt).toLocaleString('zh-CN') + '</span><h3>' + esc(item.title || '游戏录像') + '</h3><p>' + (report ? '复盘进度已保存在本机。' : item.status === 'ready' ? '录像已保存，尚未分析。' : '上次录制中断，已写入的画面仍保留，可尝试恢复分析。') + '</p>' +
-        (result ? '<p class="recent-progress">已确认且可量化 <strong>' + result.reviewed + '</strong> / ' + MIN_REVIEWED + ' 起步样本 · 待确认 <strong>' + pending + '</strong> 个片段</p>' : '') +
-        '<button class="button primary" data-recording="' + esc(item.id) + '">' + icon('play') + (report ? '继续复盘' : '打开并分析') + '</button></div></div>' :
-      '<div class="recent-session no-footage"><div class="recent-preview"><span class="no-video">' + icon('record') + '</span><span>无画面</span></div><div class="recent-description"><span class="muted">' + new Date(item.createdAt).toLocaleString('zh-CN') + '</span><h3>' + esc(item.title || '游戏录像') + '</h3><p>磁盘上的录像文件为空（0 字节），未生成可回放录像；原文件与元数据仍保留在本地。</p><p class="recent-progress">可以重新选择窗口录制，或导入已有录像。</p><div class="recent-actions"><button class="button primary" id="retry-capture">' + icon('record') + '重新选择窗口</button><button class="button secondary" data-import-video>' + icon('upload') + '导入录像</button></div></div></div>') +
-    '</section>';
-}
-
-function captureCompactView() {
-  return '<section class="capture-compact" aria-label="录制新对局"><div><h2>录下一局</h2><p>手动选择窗口，结束后分析。录像和档案仅保存在本机，不录制音频。</p></div><div class="capture-compact-actions"><button class="button primary" id="start-recording">' + icon('record') + '开始录制</button><button class="button secondary" id="import-video">' + icon('upload') + '导入录像</button></div></section>';
-}
-
-function emptyRecentView() {
-  return '<section class="recent-section"><div class="section-heading"><h2>最近一局</h2><button class="text-button" data-nav="history">全部记录 ' + icon('arrow') + '</button></div><div class="empty-history"><div>' + icon('play') + '<h3>还没有录像</h3><p>用上方的「开始录制」或「导入录像」添加第一局。</p></div><button class="text-button" id="load-demo">查看合成示例 ' + icon('arrow') + '</button></div></section>';
-}
-
-// Fixed Recents entry, borrowed from Aimlabs' left rail: the last session's
-// thumbnail and its "open report/analyze" action stay adjacent on every page.
-function recentsRail() {
-  const item = state.recordings.find(usableRecording) || state.recordings[0];
-  if (!item) return '';
-  const report = usableRecording(item) ? loadReport(item.id) : null;
-  return '<div class="recents-rail" aria-label="最近一局"><div class="recents-rail-head"><span>最近一局</span><button class="rail-more" data-nav="history">全部记录</button></div>' +
-    (usableRecording(item) ?
-      '<div class="rail-card"><div class="rail-thumb"><video id="rail-preview" muted playsinline preload="metadata" aria-label="最近一局缩略画面"></video><span class="rail-duration">' + time(item.duration) + '</span></div><p class="rail-title">' + esc(item.title || '游戏录像') + '</p><button class="button small secondary rail-open" data-recording="' + esc(item.id) + '">' + icon('play') + (report ? '查看报告' : '打开并分析') + '</button></div>' :
-      '<div class="rail-card"><div class="rail-thumb"><span class="no-video">' + icon('record') + '</span></div><p class="rail-title">上次录制没有画面</p><button class="button small secondary rail-open" id="retry-capture-rail">重新录制</button></div>') +
-    '</div>';
+  return '<section class="studio" aria-label="录制状态"><div class="studio-head"><div><h1><span class="record-dot"></span>正在录制 <span id="elapsed">00:00</span></h1><p>已收到窗口画面。可以返回游戏；关闭窗口后仍在托盘录制。</p></div><button class="button danger" id="stop-recording">' + icon('stop') + '结束并分析</button></div><div class="capture-stage"><video id="live-preview" autoplay muted playsinline aria-label="正在录制的画面预览"></video></div><div class="studio-foot"><span>不录制音频</span><span>录像保存在本机</span></div></section>';
 }
 
 async function loadRecentPreview() {
@@ -177,70 +190,140 @@ async function loadRecentPreview() {
   } catch { /* The recording entry remains available even if its preview cannot load. */ }
 }
 
-async function loadRailPreview() {
-  const video = $('#rail-preview'), item = state.recordings.find(usableRecording);
-  if (!video || !item) return;
-  try {
-    const url = await storage.url(item);
-    if (!video.isConnected) { if (url.startsWith('blob:')) URL.revokeObjectURL(url); return; }
-    state.railPreviewUrl = url; video.src = url;
-    video.addEventListener('loadedmetadata', () => { video.currentTime = Math.min(1, item.duration / 2 || 0); }, { once: true });
-  } catch { /* The rail entry remains available even if its preview cannot load. */ }
+function dayKey(date) {
+  const d = new Date(date); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
-
-function recordingRows(items) {
-  return `<div class="recording-list">${items.map(item => `<button class="recording-row" data-recording="${esc(item.id)}"><span class="recording-icon">${icon('play')}</span><span class="recording-name"><strong>${esc(item.title || '游戏录像')}</strong><small>${new Date(item.createdAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })} · ${item.profile?.sensitivity ?? '—'} SENS · ${item.profile?.dpi ?? '—'} DPI</small></span><span class="recording-duration">${time(item.duration)}</span><span class="recording-tag">${recordingLabel(item)}</span>${icon('arrow')}</button>`).join('')}</div>`;
+function dayLabel(date) {
+  const d = new Date(date), now = new Date(), today = dayKey(now), yesterday = new Date(now.getTime() - 86400000);
+  if (dayKey(d) === today) return '今天';
+  if (dayKey(d) === dayKey(yesterday)) return '昨天';
+  return d.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' });
+}
+function groupRecordings(items) {
+  const groups = new Map();
+  for (const item of items) {
+    const key = dayKey(item.createdAt);
+    if (!groups.has(key)) groups.set(key, { label: dayLabel(item.createdAt), items: [] });
+    groups.get(key).items.push(item);
+  }
+  return [...groups.values()];
+}
+function libraryCard(item) {
+  const usable = usableRecording(item);
+  const report = usable ? loadReport(item.id) : null;
+  const stateClass = !usable ? 'is-muted' : report ? '' : item.status === 'ready' ? 'is-pending' : 'is-warn';
+  return '<button class="library-card" data-recording="' + esc(item.id) + '" data-thumb-card="' + esc(item.id) + '">' +
+    '<span class="library-thumb"><span class="thumb-fallback">' + icon('play') + '<span>' + (usable ? '加载预览…' : '无画面') + '</span></span><img alt="" hidden><span class="library-duration">' + time(item.duration) + '</span></span>' +
+    '<span class="library-copy"><strong>' + esc(item.title || '游戏录像') + '</strong><span class="library-meta">' + (item.profile?.dpi ?? '—') + ' DPI · ' + (item.profile?.sensitivity ?? '—') + ' 灵敏度</span><span class="library-state ' + stateClass + '">' + recordingLabel(item) + '</span></span></button>';
 }
 function historyView() {
   const locked = state.capture || state.capturePhase;
-  return `<section class="page-heading"><div><h1>对局记录</h1><p>查看已保存的录像与复盘进度。</p></div><button class="button secondary" id="import-video" ${locked ? 'disabled' : ''}>${icon('upload')}导入录像</button></section>${state.recordings.length ? recordingRows(state.recordings) : '<div class="large-empty">还没有对局记录。开始录制或导入一段录像即可。</div>'}<div class="history-actions"><button class="button secondary" id="load-demo" ${locked ? 'disabled' : ''}>体验合成示例</button>${window.doctorgame ? '<button class="text-button" id="open-folder">打开录像文件夹</button>' : '<span class="muted">浏览器版录像保存在当前浏览器；清理网站数据会移除它们。</span>'}</div>`;
+  const groups = groupRecordings(state.recordings);
+  return '<section class="library-page"><header class="page-head"><div><h1>对局记录</h1><p>' + (state.recordings.length ? state.recordings.length + ' 段录像 · 按日期浏览，仅保存在本机' : '已保存的录像与复盘进度，仅保存在本机') + '</p></div><div class="page-actions"><button class="button primary" id="start-recording" ' + (locked ? 'disabled' : '') + '>' + icon('record') + '开始录制</button><button class="button secondary" id="import-video" ' + (locked ? 'disabled' : '') + '>' + icon('upload') + '导入录像</button>' + (window.doctorgame ? '<button class="text-button" id="open-folder">打开录像文件夹</button>' : '') + '</div></header>' +
+    (state.recordings.length ? '<div class="library-groups">' + groups.map(group => '<section class="library-day" aria-label="' + group.label + '"><h2>' + group.label + '<span>' + group.items.length + ' 段</span></h2><div class="library-grid">' + group.items.map(libraryCard).join('') + '</div></section>').join('') + '</div>' :
+      '<div class="library-empty"><div class="empty-copy"><h2>还没有对局记录</h2><p>使用上方的「开始录制」或「导入录像」添加第一局。录像和报告只保存在本机。</p></div></div>') +
+    '<div class="library-foot"><button class="text-button" id="load-demo" ' + (locked ? 'disabled' : '') + '>体验合成示例 ' + icon('arrow') + '</button>' + (window.doctorgame ? '' : '<span class="muted">浏览器版录像随网站数据清理而消失。</span>') + '</div></section>';
+}
+
+function resetThumbnailLoader() {
+  state.thumbnailGeneration++;
+  if (state.thumbnailObserver) { state.thumbnailObserver.disconnect(); state.thumbnailObserver = null; }
+  state.thumbnailQueue = []; state.thumbnailActive = 0;
+}
+function observeLibraryThumbnails() {
+  const cards = [...document.querySelectorAll('[data-thumb-card]')];
+  if (!cards.length) return;
+  if (!('IntersectionObserver' in window)) { cards.slice(0, 6).forEach(enqueueLibraryThumbnail); return; }
+  const observer = new IntersectionObserver(entries => {
+    for (const entry of entries) if (entry.isIntersecting) { observer.unobserve(entry.target); enqueueLibraryThumbnail(entry.target); }
+  }, { rootMargin: '220px 0px' });
+  state.thumbnailObserver = observer;
+  cards.forEach(card => observer.observe(card));
+}
+function enqueueLibraryThumbnail(card) {
+  if (!card?.isConnected) return;
+  state.thumbnailQueue.push(card); processThumbnailQueue();
+}
+function processThumbnailQueue() {
+  const generation = state.thumbnailGeneration;
+  while (state.thumbnailActive < 2 && state.thumbnailQueue.length) {
+    const card = state.thumbnailQueue.shift(); state.thumbnailActive++;
+    loadLibraryThumbnail(card).finally(() => {
+      if (generation !== state.thumbnailGeneration) return;
+      state.thumbnailActive--; processThumbnailQueue();
+    });
+  }
+}
+function waitForMediaEvent(media, event, timeout = 8000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { cleanup(); reject(new Error('thumbnail timeout')); }, timeout);
+    const done = () => { cleanup(); resolve(); };
+    const failed = () => { cleanup(); reject(new Error('thumbnail failed')); };
+    const cleanup = () => { clearTimeout(timer); media.removeEventListener(event, done); media.removeEventListener('error', failed); };
+    media.addEventListener(event, done, { once: true }); media.addEventListener('error', failed, { once: true });
+  });
+}
+async function loadLibraryThumbnail(card) {
+  if (!card?.isConnected) return;
+  const item = state.recordings.find(recording => recording.id === card.dataset.thumbCard);
+  const image = card.querySelector('img'), fallback = card.querySelector('.thumb-fallback');
+  if (!item || !usableRecording(item) || !image) { if (fallback) fallback.lastElementChild.textContent = '无画面'; return; }
+  let video, url;
+  try {
+    url = await storage.url(item);
+    video = document.createElement('video'); video.muted = true; video.playsInline = true; video.preload = 'auto'; video.crossOrigin = 'anonymous';
+    video.src = url;
+    await waitForMediaEvent(video, 'loadedmetadata');
+    const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : item.duration || 0;
+    video.currentTime = Math.min(1, duration / 2 || 1);
+    await waitForMediaEvent(video, 'seeked');
+    const canvas = document.createElement('canvas'); canvas.width = 320; canvas.height = 180;
+    canvas.getContext('2d').drawImage(video, 0, 0, 320, 180);
+    image.src = canvas.toDataURL('image/jpeg', 0.72); image.hidden = false;
+    if (fallback) fallback.hidden = true;
+  } catch {
+    if (fallback) fallback.lastElementChild.textContent = '无法预览';
+  } finally {
+    if (video) { video.removeAttribute('src'); video.load(); }
+    if (url?.startsWith('blob:')) URL.revokeObjectURL(url);
+  }
 }
 
 function choiceGroup(name, legend, options, hint) {
   return `<fieldset class="choice-group"><legend>${legend}</legend><div class="choices">${options.map(([value, label, detail]) => `<label class="choice"><input type="radio" name="${name}" value="${value}" ${state.profile[name] === value ? 'checked' : ''}><span><strong>${label}</strong>${detail ? `<small>${detail}</small>` : ''}</span></label>`).join('')}</div>${hint ? `<p class="field-hint">${hint}</p>` : ''}</fieldset>`;
 }
 function profileView() {
-  const p = state.profile;
-  return `<section class="page-heading"><div><h1>玩家档案</h1><p>记录实际设置和习惯，用于下一局分析。</p></div></section>${state.profileConfirmed ? '' : '<p class="profile-verify profile-verify-page" role="note">' + icon('info') + '当前显示的是默认值 800 / 0.35。请按游戏内实际设置核对后保存；保存后可直接返回工作台。</p>'}<form id="profile-form" class="profile-form"><div class="form-main"><section class="form-section"><div class="form-section-title"><div><h2>游戏与鼠标</h2><p>填写游戏中实际使用的数值。</p></div></div><div class="fields"><label>鼠标 DPI<input name="dpi" type="number" min="100" max="64000" step="1" value="${p.dpi}" required><small>在鼠标驱动中查看</small></label><label>游戏内灵敏度<input name="sensitivity" type="number" min="0.001" max="10" step="any" value="${p.sensitivity}" required><small>基础灵敏度，暂不包含开镜倍率</small></label><label>敌人高亮颜色<select name="outline">${Object.entries(outlineLabel).map(([key, label]) => `<option value="${key}" ${p.outline === key ? 'selected' : ''}>${label}</option>`).join('')}</select><small>与游戏内设置保持一致</small></label></div></section>
-  <section class="form-section"><div class="form-section-title"><div><h2>你的瞄准习惯</h2><p>按大多数时候的动作选择，混合使用很正常。</p></div></div>
-    ${choiceGroup('aimStyle', '主要通过哪里移动鼠标？', [['arm', '手臂为主', '前臂带动大部分移动'], ['wrist', '手腕为主', '手腕转动完成大部分移动'], ['mixed', '混合使用', '手臂转向，手腕或手指微调'], ['unknown', '暂不确定', '可以之后再补充']])}
-    ${choiceGroup('grip', '平时怎样握住鼠标？', [['palm', '趴握', '手掌大面积贴住鼠背'], ['claw', '抓握', '掌根接触，手指拱起'], ['fingertip', '指握', '主要由指尖接触鼠标'], ['unknown', '暂不确定', '也可能介于两种握法之间']], '这些信息由你填写；游戏画面无法直接判断握姿。')}
-  </section><section class="form-section"><div class="form-section-title"><div><h2>空间与控制感</h2><p>记录实际可用的空间，比鼠标垫标称尺寸更有用。</p></div></div><label class="space-field">鼠标左右可移动的总宽度 <span class="muted">（选填，cm）</span><input name="mouseSpace" type="number" min="5" max="150" step="any" placeholder="例如 35" value="${p.mouseSpace ?? ''}"></label>
-  ${choiceGroup('comfort', '目前哪种描述最接近你的体验？', [['comfortable', '移动舒适', '大幅转向也有余量'], ['limited', '经常拉到边缘', '转身时需要抬鼠重置'], ['tense', '容易用力过紧', '微调时控制感不稳定'], ['unknown', '暂不确定', '先记录，再观察']])}</section>
-  <div class="form-save"><span id="profile-feedback" role="status">保存后用于下一次观察；旧报告保留当时的档案。</span><div class="form-save-actions"><button class="button secondary" type="submit" ${state.capture || state.capturePhase ? 'disabled' : ''}>${icon('check')}保存玩家档案</button><button class="button primary" type="submit" id="save-profile-return" ${state.capture || state.capturePhase ? 'disabled' : ''}>保存并返回工作台</button></div></div></div>
-  <aside class="form-aside"><span class="aside-label">WHY IT MATTERS</span><h2>数字之外，<br>还有你的动作。</h2><div class="hand-diagram" aria-hidden="true">${icon('mouse')}<div class="motion-arc"></div><span>↔</span></div><p>手臂、手腕和手指各自承担的动作不同。分析会结合这些习惯，提醒你复测哪些场景。</p><hr><strong>习惯是线索，不是结论。</strong><p>不会仅凭握姿推荐固定灵敏度。是否调整，还需要画面证据和调整前后的表现来验证。</p></aside></form>`;
+  const p = state.profile, locked = state.capture || state.capturePhase;
+  return '<section class="settings-page"><header class="page-head"><div><h1>玩家档案</h1><p>当前设置只影响之后的新录像；旧报告保留录制当时的档案。</p></div><span class="profile-state ' + (state.profileConfirmed ? 'confirmed' : 'unconfirmed') + '">' + (state.profileConfirmed ? '档案已保存' : '默认值 · 待核对') + '</span></header>' +
+    (state.profileConfirmed ? '' : '<p class="profile-verify profile-verify-page" role="note">' + icon('info') + '当前显示的是默认值 800 / 0.35。请按游戏内实际设置核对后保存；保存后可直接返回录制。</p>') +
+    '<form id="profile-form" class="profile-form"><div class="settings-grid">' +
+    '<section class="settings-group"><div class="group-head"><h2>游戏与鼠标</h2><p>按游戏内实际使用的数值填写。</p></div><div class="fields"><label>鼠标 DPI<input name="dpi" type="number" min="100" max="64000" step="1" value="' + p.dpi + '" required><small>在鼠标驱动中查看</small></label><label>游戏内灵敏度<input name="sensitivity" type="number" min="0.001" max="10" step="any" value="' + p.sensitivity + '" required><small>基础灵敏度，暂不包含开镜倍率</small></label><label>敌人高亮颜色<select name="outline">' + Object.entries(outlineLabel).map(([key, label]) => '<option value="' + key + '" ' + (p.outline === key ? 'selected' : '') + '>' + label + '</option>').join('') + '</select><small>与游戏内设置保持一致</small></label></div></section>' +
+    '<section class="settings-group"><div class="group-head"><h2>瞄准方式</h2><p>按大多数时候的动作选择。</p></div>' + choiceGroup('aimStyle', '主要通过哪里移动鼠标？', [['arm', '手臂为主', '前臂带动大部分移动'], ['wrist', '手腕为主', '手腕转动完成大部分移动'], ['mixed', '混合使用', '手臂转向，手腕或手指微调'], ['unknown', '暂不确定', '可以之后再补充']]) + '</section>' +
+    '<section class="settings-group"><div class="group-head"><h2>握姿</h2><p>用于保持复测时的比较条件。</p></div>' + choiceGroup('grip', '平时怎样握住鼠标？', [['palm', '趴握', '手掌大面积贴住鼠背'], ['claw', '抓握', '掌根接触，手指拱起'], ['fingertip', '指握', '主要由指尖接触鼠标'], ['unknown', '暂不确定', '也可能介于两种握法之间']], '这些信息由你填写；游戏画面无法直接判断握姿。') + '</section>' +
+    '<section class="settings-group"><div class="group-head"><h2>空间与控制感</h2><p>记录实际可用的空间，比鼠标垫标称尺寸更有用。</p></div><label class="space-field">鼠标左右可移动的总宽度 <span class="muted">（选填，cm）</span><input name="mouseSpace" type="number" min="5" max="150" step="any" placeholder="例如 35" value="' + (p.mouseSpace ?? '') + '"></label>' + choiceGroup('comfort', '目前哪种描述最接近你的体验？', [['comfortable', '移动舒适', '大幅转向也有余量'], ['limited', '经常拉到边缘', '转身时需要抬鼠重置'], ['tense', '容易用力过紧', '微调时控制感不稳定'], ['unknown', '暂不确定', '先记录，再观察']]) + '</section>' +
+    '</div><div class="save-bar"><span id="profile-feedback" role="status">保存后用于下一次观察；旧报告保留当时的档案。</span><div class="form-save-actions"><button class="button secondary" type="submit" ' + (locked ? 'disabled' : '') + '>' + icon('check') + '保存玩家档案</button><button class="button primary" type="submit" id="save-profile-return" ' + (locked ? 'disabled' : '') + '>保存并返回录制</button></div></div></form></section>';
 }
 
 function progressView() {
   const p = state.progress;
-  return `<section class="progress-page"><div class="progress-symbol">${icon('target')}</div><h1>${p?.label || '正在整理瞄准片段'}</h1><p>全程在本机处理。完整对局可能需要较长时间。</p><progress max="1" value="${p?.fraction || 0}" aria-label="分析进度"></progress><div class="progress-detail"><span>${Math.round((p?.fraction || 0) * 100)}%</span><span>${p?.processed ? `已检查 ${p.processed.toLocaleString()} 帧 · ${p.candidates || 0} 个候选片段` : '正在准备录像…'}</span></div>${state.abort ? '<button class="button secondary" id="cancel-analysis">取消分析，保留录像</button>' : '<span class="muted">正在保存，请稍候。</span>'}<div class="bottom-note">${icon('shield')} 分析结果只在赛后展示。</div></section>`;
+  return '<section class="progress-page"><span class="progress-symbol">' + icon('target') + '</span><h1>' + (p?.label || '正在整理瞄准片段') + '</h1><p>全程在本机处理。完整对局可能需要较长时间。</p><progress max="1" value="' + (p?.fraction || 0) + '" aria-label="分析进度"></progress><div class="progress-meta"><span>' + Math.round((p?.fraction || 0) * 100) + '%</span><span>' + (p?.processed ? '已检查 ' + p.processed.toLocaleString() + ' 帧 · ' + (p.candidates || 0) + ' 个候选片段' : '正在准备录像…') + '</span></div>' + (state.abort ? '<button class="button secondary" id="cancel-analysis">取消分析，保留录像</button>' : '<span class="muted">正在保存，请稍候。</span>') + '<p class="progress-note">' + icon('shield') + '分析结果只在赛后展示；录像不会上传。</p></section>';
 }
 
 function reportView() {
   const r = state.report;
   if (!r) return '<div class="large-empty">请先从对局记录中打开一份报告。</div>';
-  return '<section class="page-heading report-heading"><div><h1>' + (r.demo ? '复盘示例' : '赛后复盘') + '</h1><p>' +
-    (r.demo ? '合成示例 · 程序生成的轨迹，不是玩家实战录像。' : esc(state.item?.title || '游戏录像') + ' · ' + time(r.duration) + ' · ' + r.profile.dpi + ' DPI') +
-    '</p></div><button class="button secondary" id="export-report">' + icon('download') + '导出报告</button></section>' +
-    '<div id="review-summary" class="report-summary" aria-label="复盘概览"></div>' +
-    '<div class="review-grid"><section class="evidence-panel" aria-label="录像与片段操作"><div id="evidence-stage" class="evidence-stage"></div>' +
-    '<div class="timeline-panel"><div id="clip-timeline"></div><div class="seek-row"><label class="sr-only" for="replay-seek">录像播放位置</label><input id="replay-seek" type="range" min="0" max="' + r.duration + '" step="0.05" value="0" ' + (r.demo ? 'disabled' : '') + '><output id="replay-time">00:00 / ' + time(r.duration) + '</output></div></div><div id="playback-controls" class="playback-controls"></div></section>' +
-    '<aside class="review-side" aria-label="片段选择与确认"><details id="clips-panel" class="clips-panel" ' + (innerWidth >= 1050 ? 'open' : '') + '><summary>片段 <span id="clip-total" class="count-badge">' + r.events.length + '</span><span class="collapse-hint">展开 / 收起</span></summary>' +
-    '<label class="filter-label" for="event-filter">筛选<select id="event-filter"><option value="all">全部片段</option><option value="pending">待确认</option><option value="reviewed">已确认</option><option value="excluded">已排除</option>' + Object.entries(SCENE_LABELS).filter(([key]) => key !== 'unknown').map(([value, label]) => '<option value="' + value + '">' + label + '</option>').join('') + '</select></label><div id="events-list" class="events-list"></div></details><div id="evidence-controls" class="evidence-controls"></div></aside></div>' +
-    '<div class="review-details"><details class="analysis-details"><summary>轨迹与判断依据</summary><div class="error-chart"><div><strong id="chart-title">目标相对准星的位置</strong><span id="chart-unit">沿初始瞄准方向 · 屏幕宽度 %</span></div><svg id="error-plot" viewBox="0 0 640 130" role="img" aria-label="当前片段的位置曲线"></svg><p id="chart-description"></p></div></details>' +
-    '<details class="advice-details" id="advice-details"><summary>建议依据与下一次复测</summary><div id="recommendation-detail"></div></details></div>';
+  return '<section class="report-page"><header class="page-head report-head"><div><h1>' + (r.demo ? '复盘示例' : '赛后复盘') + '</h1><p class="report-meta">' + (r.demo ? '<span class="demo-pill">合成示例 · 非真实对局</span> 程序生成的轨迹，只用于体验回放。' : esc(state.item?.title || '游戏录像') + ' · ' + time(r.duration) + ' · ' + r.profile.dpi + ' DPI · ' + r.profile.sensitivity + ' 灵敏度') + '</p></div><button class="button secondary" id="export-report">' + icon('download') + '导出报告</button></header>' +
+    '<div class="report-layout"><section class="video-workspace" aria-label="录像与片段操作"><div id="evidence-stage" class="evidence-stage"></div><div class="timeline-panel"><div id="clip-timeline"></div><div class="seek-row"><label class="sr-only" for="replay-seek">录像播放位置</label><input id="replay-seek" type="range" min="0" max="' + r.duration + '" step="0.05" value="0" ' + (r.demo ? 'disabled' : '') + '><output id="replay-time">00:00 / ' + time(r.duration) + '</output></div></div><div id="playback-controls" class="playback-controls"></div></section>' +
+    '<aside class="review-panel" aria-label="片段选择与确认"><div id="review-summary" class="review-summary" aria-label="复盘概览"></div><details id="clips-panel" class="clips-panel" ' + (innerWidth >= 1100 ? 'open' : '') + '><summary>片段 <span id="clip-total" class="count-badge">' + r.events.length + '</span><span class="collapse-hint">展开 / 收起</span></summary><label class="filter-label" for="event-filter">筛选<select id="event-filter"><option value="all">全部片段</option><option value="pending">待确认</option><option value="reviewed">已确认</option><option value="excluded">已排除</option>' + Object.entries(SCENE_LABELS).filter(([key]) => key !== 'unknown').map(([value, label]) => '<option value="' + value + '">' + label + '</option>').join('') + '</select></label><div id="events-list" class="events-list"></div></details><div id="evidence-controls" class="evidence-controls"></div></aside></div>' +
+    '<div class="report-details"><details class="analysis-details"><summary>轨迹与判断依据</summary><div class="error-chart"><div><strong id="chart-title">目标相对准星的位置</strong><span id="chart-unit">沿初始瞄准方向 · 屏幕宽度 %</span></div><svg id="error-plot" viewBox="0 0 640 130" role="img" aria-label="当前片段的位置曲线"></svg><p id="chart-description"></p></div></details><details class="advice-details" id="advice-details"><summary>建议依据与下一次复测</summary><div id="recommendation-detail"></div></details></div></section>';
 }
 
 function reportSummary() {
   const r = state.report, result = recommend(r.events, r.profile, { demo: r.demo });
   const adviceOpen = Boolean($('#advice-details')?.open);
-  // Show the recommendation's own reason next to the number; the full rules stay
-  // available but no longer hide the explanation behind a collapsed disclosure.
-  return '<div><span>已确认且可量化</span><strong data-testid="quantified-count">' + (r.demo ? 0 : result.reviewed) + '<small> / ' + MIN_REVIEWED + ' 起步样本</small></strong></div>' +
-    '<div><span>待确认片段</span><strong>' + r.events.filter(e => e.included && !e.reviewed).length + '</strong></div>' +
-    '<div class="recommend-inline"><span>本次建议</span><strong>' + (result.status === 'experiment' ? '试用 ' : '保持当前值 ') + result.candidate + (result.change ? '<small>' + (result.change > 0 ? '+3%' : '−3%') + '</small>' : '') + '</strong>' +
-    '<p class="recommend-reason" data-testid="recommend-reason">' + esc(result.reason) + '</p>' +
-    '<button class="text-button advice-toggle" id="advice-toggle" type="button" aria-expanded="' + adviceOpen + '" aria-controls="advice-details">查看依据与复测 ' + icon('arrow') + '</button></div>';
+  const pending = r.events.filter(e => e.included && !e.reviewed).length;
+  return '<div class="metric-row"><div class="metric"><span>已确认且可量化</span><strong data-testid="quantified-count">' + (r.demo ? 0 : result.reviewed) + '<small> / ' + MIN_REVIEWED + ' 起步样本</small></strong></div><div class="metric"><span>待确认</span><strong>' + pending + '</strong></div></div>' +
+    '<div class="recommendation"><div class="recommend-top"><span>本次建议</span><strong>' + (result.status === 'experiment' ? '试用 ' : '保持当前值 ') + result.candidate + (result.change ? '<small>' + (result.change > 0 ? '+3%' : '−3%') + '</small>' : '') + '</strong></div><p class="recommend-reason" data-testid="recommend-reason">' + esc(result.reason) + '</p><button class="text-button advice-toggle" id="advice-toggle" type="button" aria-expanded="' + adviceOpen + '" aria-controls="advice-details">查看依据与复测 ' + icon('arrow') + '</button></div>';
 }
 
 function filteredEvents() {
@@ -306,8 +389,15 @@ function syncPlayback() {
   if (line) { line.setAttribute('x1', x); line.setAttribute('x2', x); }
 }
 
-function methodView() {
-  return `<section class="page-heading"><div><div class="eyebrow">EVIDENCE BEFORE NUMBERS</div><h1>建议，从哪里来<span class="heading-dot">.</span></h1><p>每一步都可以解释，每一个结论都留有验证的余地。</p></div></section><div class="method-layout"><article class="method-article"><section><span class="method-number">01 / 记录</span><h2>画面 + 玩家习惯</h2><p>手动选择游戏窗口，后台记录无音频录像。DPI、游戏内灵敏度、瞄准方式、握姿、可移动空间和控制感会作为本场档案保存。结束后再分析。</p></section><section><span class="method-number">02 / 寻找线索</span><h2>寻找目标相对准星的变化</h2><p>当前原型每秒抽取 20 帧，按敌人高亮颜色查找候选轮廓，跟踪它相对画面中心的位置。丢失目标、多个候选目标或轨迹跳变的片段会被跳过。</p><p>颜色识别不是训练好的敌人检测模型。技能特效、场景、后坐力、目标移动和观战画面都可能产生误判，因此需要你回放确认。</p></section><section><span class="method-number">03 / 结合习惯</span><h2>用身体动作解释画面</h2><p>手腕为主的玩家需要同时验证微调与大角度转身；手臂为主的玩家需要关注停下后的细微修正。握姿用于保留比较条件，鼠标空间用于检查是否存在转向限制。</p><p>目前没有采用“某种握法 = 某个灵敏度”的硬编码映射。习惯信息会改变解释与复测项目，暂不直接给推荐数值加权。</p></section><section><span class="method-number">04 / 验证</span><h2>先提出假设，再比较设置</h2><p>至少 ${MIN_REVIEWED} 个回放确认的有效片段，且同一偏差方向占比达到 65%、Wilson 区间下界大于 50%，才提出 ±3% 的小幅试用设置。其他情况保持原值。</p><p>这些阈值是原型的工程规则，片段也不一定相互独立；它们不是科学保证或校准后的置信度。真实准确率与改善效果需要用标注录像和交叉复测验证。</p></section></article><aside class="method-aside"><h2>当前版本的边界</h2><ul><li>手动开始与结束记录</li><li>仅分析基础灵敏度</li><li>握姿与动作习惯由玩家填写</li><li>本地保存、赛后反馈</li><li>样本不足时保留原值</li></ul><p>下一步重点：标注真实对局，验证目标识别；引入相机运动补偿，分离敌人移动与玩家转向；比较调整前后的控制表现。</p><div class="bottom-note">${icon('info')}尚未经过 Riot 审核或 Windows 实战兼容性验证。</div></aside></div>`;
+function helpView() {
+  return '<section class="help-page"><header class="page-head"><div><h1>使用帮助</h1><p>录制、复盘、本地存储和当前版本的实际限制。</p></div></header><div class="help-grid">' +
+    '<section class="help-block"><h2>录像在哪里，怎样停止？</h2><p>桌面版录像和报告只保存在本机用户数据目录；关闭窗口后仍可从托盘结束录制。浏览器预览版保存在当前浏览器，清理网站数据会移除。</p><p>开始录制需要手动选择一个正在显示游戏画面的完整窗口，必须在游戏结束后点击“结束并分析”。</p></section>' +
+    '<section class="help-block"><h2>没有收到窗口画面怎么办？</h2><p>等待阶段可以取消或重新选择窗口；8 秒没有收到可解码画面就不会开始录制，也不会保存空录像。请确认窗口正在显示动态画面，并检查系统录屏权限。</p><p>如果录像实际为空，记录页会显示“无画面”并拒绝分析；原文件和元数据仍保留在本机。</p></section>' +
+    '<section class="help-block"><h2>为什么片段还要手动确认？</h2><p>颜色轮廓和背景位移只是候选线索，不是训练好的敌人识别。技能特效、后坐力、观战、敌人移动和错误轮廓都可能误检，所以需要回放确认场景与意图。</p><p>合成示例、手动标记、预瞄、未知场景和已排除片段都不会成为量化样本。</p></section>' +
+    '<section class="help-block"><h2>建议值怎么来的？</h2><p>至少 ' + MIN_REVIEWED + ' 个已确认且未排除的击杀/被击杀/对枪片段，并且同一调整方向占比达到 65%、Wilson 下界大于 50%，才提出 ±3% 的试验值；否则保持当前值。</p><p>这些阈值是原型的工程规则，不是已验证的最佳灵敏度或成功概率。片段之间也不一定相互独立。</p></section>' +
+    '<section class="help-block"><h2>没有候选片段怎么办？</h2><p>可以播放完整录像，在想到的位置手动标记击杀、被击杀、对枪或预瞄事件。手动标记只用于复盘，不进入灵敏度建议的有效样本；也可以导入另一段录像。</p><p>取消分析不会删除录像，可在对局记录中重新打开。</p></section>' +
+    '<section class="help-block"><h2>当前版本的限制</h2><p>尚未验证 Windows 游戏窗口/全屏捕获、Vanguard、长时间录制和游戏帧率影响，也未获得 Riot 审核。自动击杀/死亡识别尚未实现，灵敏度建议仍需玩家用实际复测确认。</p></section>' +
+    '</div></section>';
 }
 
 function renderEvidence({ seek = false } = {}) {
@@ -401,20 +491,17 @@ function attachReplayTools(event) {
 
 function persistReport() { if (!state.report.demo) { try { saveReport(state.report); } catch { notify('报告暂时无法保存：本地存储空间可能不足，请先导出。', true); return false; } } return true; }
 function bind() {
-  $('.brand').setAttribute('aria-label', 'doctorgame 灵敏度实验室首页');
+  $('.brand').setAttribute('aria-label', 'doctorgame 首页');
   $('#video-file').hidden = true;
   $('#notice').removeAttribute('role');
-  document.querySelectorAll('aside').forEach((element, index) => element.setAttribute('aria-label', element.querySelector('h2')?.textContent || `工作空间导航 ${index + 1}`));
-  if (state.page === 'method') $('.method-article')?.insertAdjacentHTML('beforeend', `<section><span class="method-number">05 / 场景分开看</span><h2>击杀、被击杀、无击杀对枪与预瞄</h2><p>片段按这四种场景回放确认。当前版本不会根据颜色轨迹自动宣称发生击杀或死亡；真实结果仍由玩家选择。后续需要用游戏界面事件识别定位时间点，并连同事件前的瞄准过程一起分析。</p><p>预瞄候选使用多个背景区域的位移一致性估计视角运动，显示方向反转次数和位移速度。低纹理、快速甩动和不一致运动会被跳过。它是低频视角变化的近似，无法直接测量手部平滑度，也暂不参与推荐数值计算。</p></section>`);
-  document.querySelectorAll('.nav-item').forEach(button => button.setAttribute('aria-label', navItems.find(n => n[0] === button.dataset.nav)[2]));
   $('#start-recording')?.addEventListener('click', startRecording);
   $('#retry-capture')?.addEventListener('click', startRecording);
-  $('#retry-capture-rail')?.addEventListener('click', startRecording);
   $('#stop-recording')?.addEventListener('click', () => state.capture?.stop());
   $('#stop-banner')?.addEventListener('click', () => state.capture?.stop());
   $('#cancel-capture')?.addEventListener('click', cancelCapture);
   $('#cancel-capture-banner')?.addEventListener('click', cancelCapture);
   $('#reselect-capture')?.addEventListener('click', reselectCapture);
+  $('#reselect-capture-banner')?.addEventListener('click', reselectCapture);
   $('#import-video')?.addEventListener('click', () => $('#video-file').click());
   $('#video-file')?.addEventListener('change', importVideo);
   $('#load-demo')?.addEventListener('click', () => { if (state.capture || state.capturePhase) return; releaseMedia(); state.report = makeDemo(state.profile); state.eventIndex = 0; state.filter = 'all'; navigate('report'); });
@@ -498,7 +585,7 @@ async function captureSelected() {
     if (reselect) startRecording();
   }
 }
-function tick() { const target = $('#elapsed'); if (target && state.capture) target.textContent = time((performance.now() - state.capture.startedAt) / 1000); }
+function tick() { if (!state.capture) return; const value = time((performance.now() - state.capture.startedAt) / 1000); for (const selector of ['#elapsed', '#elapsed-global']) { const target = $(selector); if (target) target.textContent = value; } }
 
 async function importVideo(event) {
   const file = event.target.files?.[0]; if (!file || state.capture || state.capturePhase || state.busy) return;
@@ -531,7 +618,7 @@ async function runAnalysis(item) {
   if (!item || !usableRecording(item)) { notify('这段录像的实际文件为空（0 字节），不能分析。原文件与元数据仍保留在本机；请重新录制或导入其他录像。', true); render(); return; }
   await setBusy(true); state.abort = new AbortController(); state.progress = { fraction: 0 }; state.page = 'report'; render();
   try {
-    state.report = await analyzeVideo(state.mediaUrl, item, progress => { state.progress = progress; const bar = $('progress'); if (bar) bar.value = progress.fraction; const detail = $('.progress-detail'); if (detail) detail.innerHTML = `<span>${Math.round(progress.fraction * 100)}%</span><span>已检查 ${progress.processed.toLocaleString()} 帧 · ${progress.candidates} 个候选片段</span>`; }, state.abort.signal);
+    state.report = await analyzeVideo(state.mediaUrl, item, progress => { state.progress = progress; const bar = $('progress'); if (bar) bar.value = progress.fraction; const detail = $('.progress-meta'); if (detail) detail.innerHTML = `<span>${Math.round(progress.fraction * 100)}%</span><span>已检查 ${progress.processed.toLocaleString()} 帧 · ${progress.candidates} 个候选片段</span>`; }, state.abort.signal);
     state.eventIndex = 0; state.filter = 'all'; state.clipEnd = null; persistReport();
     state.notice = { message: state.report.events.length ? '分析完成。请先回放确认候选片段。' : '分析完成，没有找到候选片段。录像已保留；可以播放完整录像并手动标记关键事件，或导入另一段录像。', error: false };
   } catch (error) {

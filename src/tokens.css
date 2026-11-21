@@ -1,16 +1,34 @@
 :root{
   color-scheme:dark;
-  --sidebar-width:190px;
   --font:"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-  --mono:"SFMono-Regular",Consolas,"Liberation Mono",monospace;
-  /* Palette sampled from the official Aimlabs Play 2.0 page (Play image, not the
-     results page): charcoal surfaces, cyan/teal action color, light body text.
-     Variable names are kept for the existing components; values are the theme. */
-  --canvas:#0c0f12;--surface:#151b20;--ink:#eef4f6;--muted:#9aa8b0;--soft:#7f8d95;--line:#242d34;--line-strong:#5f6e78;--control-border:#5f6e78;
-  --forest:#10151a;--forest-light:#1b232a;--side-text:#f0f5f6;--side-muted:#9aa8b0;--side-line:#2a343b;
-  --accent:#46d8d7;--accent-hover:#6ae6e4;--accent-ink:#061315;--green:#4bd8d2;--focus:#8bf4f0;--subtle:#1e272e;--field:#0b1014;
-  --stage:#050709;--grid-line:#1d262b;--grid-axis:#2a363d;--stage-ring:#2f6c69;--stage-muted:#7f969b;--stage-text:#b9c6ca;
-  --selection:#10302f;--selection-border:#2c615d;--notice:#0f2a29;--notice-border:#2d5b58;
-  --danger:#ff6b66;--red:#ff756f;--error-surface:#2a1517;--error-border:#743236;
-  --amber:#f2c56b;--amber-surface:#2b2417;--amber-border:#5a4a2a;--blue:#7fb8ff;--blue-surface:#142430;--backdrop:#000000d9;
+  --canvas:#0b0e10;
+  --shell:#101418;
+  --panel:#141a1e;
+  --panel-2:#192127;
+  --panel-3:#1e272e;
+  --ink:#e9eff2;
+  --muted:#95a3aa;
+  --soft:#8b989f;
+  --line:#283138;
+  --line-strong:#3a464d;
+  --control-border:#55646c;
+  --accent:#53dedb;
+  --accent-hover:#72e8e5;
+  --accent-ink:#061416;
+  --accent-soft:#102c2d;
+  --warn:#f0b45b;
+  --warn-soft:#2a2114;
+  --warn-border:#5a4a2a;
+  --danger:#ff6b64;
+  --danger-soft:#2b1516;
+  --danger-border:#6d3030;
+  --info:#7db8ff;
+  --info-soft:#142330;
+  --stage:#050708;
+  --field:#0d1215;
+  --focus:#8df2ee;
+  --backdrop:#000000b8;
+  --topbar-h:62px;
+  --radius:6px;
+  --gutter:clamp(16px,2.4vw,34px);
 }

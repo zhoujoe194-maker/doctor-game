@@ -46,22 +46,22 @@ test('first visit marks defaults for review and saving returns to the recording 
   expect(startBox.y).toBeLessThan(420);
   await expect(page.getByRole('button', { name: '导入录像', exact: true })).toBeVisible();
 
-  await page.getByRole('button', { name: '编辑玩家档案' }).click();
+  await page.getByRole('button', { name: '编辑档案' }).click();
   await expect(page.locator('.profile-verify-page')).toContainText('默认值 800 / 0.35');
   await page.locator('[name="dpi"]').fill('1000');
   await page.locator('[name="sensitivity"]').fill('0.4');
-  await page.getByRole('button', { name: '保存并返回工作台', exact: true }).click();
+  await page.getByRole('button', { name: '保存并返回录制', exact: true }).click();
   await expect(page.getByRole('heading', { name: '录制与复盘', exact: true })).toBeVisible();
   await expect(page.locator('#notice')).toContainText('玩家档案已保存');
   await expect(page.locator('.profile-verify')).toHaveCount(0);
-  await expect(page.locator('.profile-strip')).toContainText('1000');
-  await expect(page.locator('.profile-strip')).toContainText('档案已保存');
+  await expect(page.locator('.settings-card')).toContainText('1000');
+  await expect(page.locator('.settings-card')).toContainText('档案已保存');
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('sight-profile')).dpi)).toBe(1000);
 });
 
 test('recommendation reason is visible next to the suggested value', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: '查看合成示例' }).click();
+  await page.locator('#load-demo').click();
   await expect(page.getByRole('heading', { name: '复盘示例' })).toBeVisible();
   const reason = page.getByTestId('recommend-reason');
   await expect(reason).toBeVisible();
@@ -87,16 +87,12 @@ test('zero-candidate report opens direct manual recovery and returning home keep
   await expect(page.locator('#notice')).toContainText('关键事件已标记');
   await expect(page.locator('.event-row')).toHaveCount(1);
 
-  await page.getByRole('button', { name: '工作台', exact: true }).click();
+  await page.getByRole('button', { name: '录制', exact: true }).click();
   await expect(page.locator('.recent-session')).toBeVisible();
   await expect(page.locator('.recent-session')).toContainText('已确认且可量化');
-  await expect(page.locator('.recents-rail')).toBeVisible();
-  await expect(page.locator('#rail-preview')).toHaveJSProperty('videoWidth', 1280);
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.evaluate(() => scrollTo(0, 0));
   const recent = page.locator('.recent-session');
-  const compact = page.locator('.capture-compact');
-  expect((await recent.boundingBox()).y).toBeLessThan((await compact.boundingBox()).y);
   const continueButton = recent.getByRole('button', { name: '继续复盘', exact: true });
   const box = await continueButton.boundingBox();
   expect(box.y).toBeGreaterThan(0);
@@ -122,10 +118,10 @@ test('no-frame capture waits, can be cancelled, times out without saving, then r
   await expect(page.locator('#notice')).toContainText('没有收到窗口画面', { timeout: 15000 });
   await expect(page.getByRole('button', { name: '开始录制', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: '对局记录', exact: true }).click();
-  await expect(page.locator('.recording-row')).toHaveCount(0);
-  await expect(page.locator('.large-empty')).toBeVisible();
+  await expect(page.locator('.library-card')).toHaveCount(0);
+  await expect(page.locator('.library-empty')).toBeVisible();
 
-  await page.getByRole('button', { name: '工作台', exact: true }).click();
+  await page.getByRole('button', { name: '录制', exact: true }).click();
   await installCanvasCapture(page, { paint: true, target: true });
   await recordUntilReport(page);
   await expect(page.getByRole('heading', { name: '赛后复盘', exact: true })).toBeVisible();
@@ -143,8 +139,8 @@ test('a 0-byte recording stays visible but cannot enter analysis', async ({ page
   await expect(page.locator('.recent-session.no-footage')).toBeVisible();
   await expect(page.locator('.recent-session.no-footage')).toContainText('磁盘上的录像文件为空（0 字节）');
   await page.getByRole('button', { name: '对局记录', exact: true }).click();
-  await expect(page.locator('.recording-row')).toContainText('无画面');
-  await page.locator('.recording-row').click();
+  await expect(page.locator('.library-card')).toContainText('无画面');
+  await page.locator('.library-card').click();
   await expect(page.locator('#notice')).toContainText('实际文件为空（0 字节）');
   await expect(page.getByRole('heading', { name: '对局记录', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: '赛后复盘', exact: true })).toHaveCount(0);
@@ -198,5 +194,5 @@ test('corrupt or invalid saved profiles fall back to defaults and stay unconfirm
   await page.evaluate(() => localStorage.setItem('sight-profile', JSON.stringify({ dpi: 1600, sensitivity: 0.4, outline: 'yellow', aimStyle: 'mixed', grip: 'unknown', mouseSpace: null, comfort: 'unknown' })));
   await page.reload();
   await expect(page.locator('.profile-verify')).toHaveCount(0);
-  await expect(page.locator('.profile-strip')).toContainText('1600');
+  await expect(page.locator('.settings-card')).toContainText('1600');
 });
