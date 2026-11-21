@@ -119,7 +119,10 @@ export async function inspectVideo(url, durationHint, signal) {
 }
 
 export async function analyzeVideo(url, item, onProgress, signal) {
-  if (!item || !(Number(item.bytes) > 0)) throw new Error('这段录像没有写入任何画面（0 字节），不能分析。请重新录制或导入其他录像。');
+  if (!item) throw new Error('请先选择一段录像。');
+  // Only a verified empty file is rejected. Missing/local-stale metadata is not
+  // proof of emptiness: let the decoder attempt recovery from the real bytes.
+  if (item.actualBytes === 0) throw new Error('这段录像的实际文件为空（0 字节），不能分析。原文件仍保留在本机；请重新录制或导入其他录像。');
   const { video, duration } = await inspectVideo(url, item.duration, signal);
   const width = 640, height = Math.round(width * video.videoHeight / video.videoWidth);
   const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;

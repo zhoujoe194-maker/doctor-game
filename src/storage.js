@@ -38,7 +38,17 @@ export const storage = {
   },
   async list() {
     if (window.doctorgame) return window.doctorgame.list();
-    return (await transaction('recordings', 'readonly', s => s.getAll())).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const items = await transaction('recordings', 'readonly', s => s.getAll());
+    // Metadata can be stale or absent (begin() never wrote bytes, an interrupted
+    // capture never reached finish()). Report the real chunk size as a runtime
+    // field; never rewrite the stored metadata or chunks.
+    const sized = await Promise.all(items.map(async item => {
+      try {
+        const chunks = await transaction('chunks', 'readonly', s => s.getAll(IDBKeyRange.bound([item.id, 0], [item.id, Number.MAX_SAFE_INTEGER])));
+        return { ...item, actualBytes: chunks.reduce((sum, chunk) => sum + (chunk.blob?.size || 0), 0) };
+      } catch { return { ...item, actualBytes: null }; }
+    }));
+    return sized.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   },
   async url(item) {
     if (window.doctorgame) return `doctorgame-video://capture/${item.id}`;
@@ -49,9 +59,6 @@ export const storage = {
 export function loadProfile(fallback) {
   try { return JSON.parse(localStorage.getItem('sight-profile')) || fallback; } catch { return fallback; }
 }
-// Distinguish a first visit (defaults shown) from a profile the player saved.
-// Reads the existing identifier only; never migrates or rewrites stored data.
-export function hasSavedProfile() { try { return Boolean(localStorage.getItem('sight-profile')); } catch { return false; } }
 export function saveProfile(profile) { localStorage.setItem('sight-profile', JSON.stringify(profile)); }
 export function saveReport(report) { localStorage.setItem(`sight-report-${report.id}`, JSON.stringify(report)); }
 export function loadReport(id) { try { return JSON.parse(localStorage.getItem(`sight-report-${id}`)); } catch { return null; } }

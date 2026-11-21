@@ -1,5 +1,5 @@
 import { DEFAULT_PROFILE, HABIT_LABELS, SCENE_LABELS, validateProfile, recommend, MIN_REVIEWED } from './analysis.js';
-import { storage, loadProfile, saveProfile, loadReport, saveReport, hasSavedProfile } from './storage.js';
+import { storage, saveProfile, loadReport, saveReport } from './storage.js';
 import { beginCapture, analyzeVideo, inspectVideo, makeDemo } from './media.js';
 
 const $ = selector => document.querySelector(selector);
@@ -15,10 +15,21 @@ const sceneGuidance = {
   preaim: '重点看搜点过程的方向、减速和衔接。主动换点产生的停顿与转向不应直接判成不平滑。'
 };
 const outlineLabel = { yellow: '黄色', purple: '紫色', red: '红色' };
-// A recording is only usable when bytes were actually written. A 0-byte capture
-// remains in the local store for transparency but can never enter analysis.
-const usableRecording = item => Number(item?.bytes) > 0;
-const recordingLabel = item => !usableRecording(item) ? '无画面' : loadReport(item.id) ? '查看报告' : item.status === 'ready' ? '待分析' : '录制中断';
+function loadInitialProfile() {
+  try {
+    const raw = localStorage.getItem('sight-profile');
+    if (!raw) return { profile: { ...DEFAULT_PROFILE }, confirmed: false };
+    // Only a successfully validated stored profile counts as confirmed. A corrupt
+    // or out-of-range value falls back to defaults without rewriting the originals.
+    return { profile: validateProfile(JSON.parse(raw)), confirmed: true };
+  } catch { return { profile: { ...DEFAULT_PROFILE }, confirmed: false }; }
+}
+// A recording is only usable when its actual bytes are known to be non-zero.
+// `actualBytes` comes from the disk file (desktop) or IndexedDB chunks (browser);
+// missing/unknown metadata must not be mistaken for a real empty recording.
+const activeRecording = item => Boolean(item) && (item.active === true || (state.capture && item.id === state.capture.id));
+const usableRecording = item => Boolean(item) && !activeRecording(item) && item.actualBytes !== 0;
+const recordingLabel = item => activeRecording(item) ? '正在录制' : item.actualBytes === 0 ? '无画面' : loadReport(item.id) ? '查看报告' : item.status === 'ready' ? '待分析' : '录制中断 · 可恢复';
 const paths = {
   grid: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
   play: '<path d="m9 5 11 7-11 7Z"/>',
@@ -39,9 +50,9 @@ const paths = {
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v1"/>'
 };
 const icon = name => `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.target}</svg>`;
-let profile;
-try { profile = validateProfile(loadProfile(DEFAULT_PROFILE)); } catch { profile = { ...DEFAULT_PROFILE }; }
-const state = { page: 'workspace', profile, profileConfirmed: hasSavedProfile(), recordings: [], capture: null, capturePhase: null, captureAbort: null, reselectCapture: false, busy: false, report: null, item: null, mediaUrl: null, eventIndex: 0, filter: 'all', progress: null, abort: null, notice: null, playbackRate: 1, clipEnd: null, homePreviewUrl: null, railPreviewUrl: null };
+const initialProfile = loadInitialProfile();
+let profile = initialProfile.profile;
+const state = { page: 'workspace', profile, profileConfirmed: initialProfile.confirmed, recordings: [], capture: null, capturePhase: null, captureAbort: null, reselectCapture: false, busy: false, report: null, item: null, mediaUrl: null, eventIndex: 0, filter: 'all', progress: null, abort: null, notice: null, playbackRate: 1, clipEnd: null, homePreviewUrl: null, railPreviewUrl: null };
 let elapsedTimer;
 
 function notify(message, error = false) {
@@ -127,10 +138,10 @@ function recentSessionView(item) {
   const pending = report ? report.events.filter(e => e.included && !e.reviewed).length : 0;
   return '<section class="recent-section" aria-label="最近一局"><div class="section-heading"><h2>继续上一局</h2><button class="text-button" data-nav="history">全部记录 ' + icon('arrow') + '</button></div>' +
     (usableRecording(item) ?
-      '<div class="recent-session"><div class="recent-preview"><video id="recent-preview" muted playsinline preload="metadata" aria-label="最近一局画面预览"></video><span>' + time(item.duration) + '</span></div><div class="recent-description"><span class="muted">' + new Date(item.createdAt).toLocaleString('zh-CN') + '</span><h3>' + esc(item.title || '游戏录像') + '</h3><p>' + (report ? '复盘进度已保存在本机。' : item.status === 'ready' ? '录像已保存，尚未分析。' : '上次录制中断，已写入的画面仍保留。') + '</p>' +
+      '<div class="recent-session"><div class="recent-preview"><video id="recent-preview" muted playsinline preload="metadata" aria-label="最近一局画面预览"></video><span>' + time(item.duration) + '</span></div><div class="recent-description"><span class="muted">' + new Date(item.createdAt).toLocaleString('zh-CN') + '</span><h3>' + esc(item.title || '游戏录像') + '</h3><p>' + (report ? '复盘进度已保存在本机。' : item.status === 'ready' ? '录像已保存，尚未分析。' : '上次录制中断，已写入的画面仍保留，可尝试恢复分析。') + '</p>' +
         (result ? '<p class="recent-progress">已确认且可量化 <strong>' + result.reviewed + '</strong> / ' + MIN_REVIEWED + ' 起步样本 · 待确认 <strong>' + pending + '</strong> 个片段</p>' : '') +
         '<button class="button primary" data-recording="' + esc(item.id) + '">' + icon('play') + (report ? '继续复盘' : '打开并分析') + '</button></div></div>' :
-      '<div class="recent-session no-footage"><div class="recent-preview"><span class="no-video">' + icon('record') + '</span><span>无画面</span></div><div class="recent-description"><span class="muted">' + new Date(item.createdAt).toLocaleString('zh-CN') + '</span><h3>' + esc(item.title || '游戏录像') + '</h3><p>这次录制没有收到任何画面，未生成可回放录像；文件与元数据仍保留在本地。</p><p class="recent-progress">可以重新选择窗口录制，或导入已有录像。</p><div class="recent-actions"><button class="button primary" id="retry-capture">' + icon('record') + '重新选择窗口</button><button class="button secondary" data-import-video>' + icon('upload') + '导入录像</button></div></div></div>') +
+      '<div class="recent-session no-footage"><div class="recent-preview"><span class="no-video">' + icon('record') + '</span><span>无画面</span></div><div class="recent-description"><span class="muted">' + new Date(item.createdAt).toLocaleString('zh-CN') + '</span><h3>' + esc(item.title || '游戏录像') + '</h3><p>磁盘上的录像文件为空（0 字节），未生成可回放录像；原文件与元数据仍保留在本地。</p><p class="recent-progress">可以重新选择窗口录制，或导入已有录像。</p><div class="recent-actions"><button class="button primary" id="retry-capture">' + icon('record') + '重新选择窗口</button><button class="button secondary" data-import-video>' + icon('upload') + '导入录像</button></div></div></div>') +
     '</section>';
 }
 
@@ -460,12 +471,15 @@ async function captureSelected() {
   try {
     state.capture = await beginCapture({ ...state.profile }, async item => {
       clearInterval(elapsedTimer); state.capture = null; state.capturePhase = null; await refreshRecordings(); releaseMedia();
-      if (!usableRecording(item)) {
-        state.item = item; state.mediaUrl = null; state.report = null; await setBusy(false);
+      // The list now carries the actual disk/IndexedDB size; use it instead of the
+      // just-finished metadata when deciding whether a capture really is empty.
+      const finished = state.recordings.find(recording => recording.id === item.id) || item;
+      if (!usableRecording(finished)) {
+        state.item = finished; state.mediaUrl = null; state.report = null; await setBusy(false);
         state.notice = { message: '没有收到任何画面，录制没有生成可分析录像；空文件与元数据仍保留在本机。可以重新选择窗口或导入录像。', error: true };
         render(); return;
       }
-      state.mediaUrl = await storage.url(item); state.item = item; await runAnalysis(item);
+      state.mediaUrl = await storage.url(finished); state.item = finished; await runAnalysis(finished);
     }, async (error, terminal) => {
       if (terminal) { clearInterval(elapsedTimer); state.capture = null; state.capturePhase = null; await setBusy(false); render(); }
       notify(error.message, true);
@@ -504,7 +518,7 @@ async function importVideo(event) {
 async function openRecording(id) {
   if (state.capture || state.capturePhase || state.busy) { notify('请先结束当前记录或分析。', true); return; }
   const item = state.recordings.find(r => r.id === id); if (!item) return;
-  if (!usableRecording(item)) { notify('这段录像没有写入任何画面（0 字节），不能进入分析。请重新录制或导入其他录像。', true); return; }
+  if (!usableRecording(item)) { notify('这段录像的实际文件为空（0 字节），不能进入分析。原文件与元数据仍保留在本机；请重新录制或导入其他录像。', true); return; }
   try {
     releaseMedia(); state.mediaUrl = await storage.url(item); state.item = item;
     const report = loadReport(id);
@@ -514,7 +528,7 @@ async function openRecording(id) {
 }
 
 async function runAnalysis(item) {
-  if (!item || !usableRecording(item)) { notify('这段录像没有写入任何画面（0 字节），不能分析。请重新录制或导入其他录像。', true); render(); return; }
+  if (!item || !usableRecording(item)) { notify('这段录像的实际文件为空（0 字节），不能分析。原文件与元数据仍保留在本机；请重新录制或导入其他录像。', true); render(); return; }
   await setBusy(true); state.abort = new AbortController(); state.progress = { fraction: 0 }; state.page = 'report'; render();
   try {
     state.report = await analyzeVideo(state.mediaUrl, item, progress => { state.progress = progress; const bar = $('progress'); if (bar) bar.value = progress.fraction; const detail = $('.progress-detail'); if (detail) detail.innerHTML = `<span>${Math.round(progress.fraction * 100)}%</span><span>已检查 ${progress.processed.toLocaleString()} 帧 · ${progress.candidates} 个候选片段</span>`; }, state.abort.signal);

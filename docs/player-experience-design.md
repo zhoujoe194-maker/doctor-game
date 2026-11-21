@@ -60,6 +60,29 @@ doctorgame 借鉴的两点：
 - 录制仍为无音频、显式选择窗口、可取消；保留 MediaRecorder 正常成功路径。
 - 未做系统级采集改造：本轮没有证据定位 macOS 原生无帧根因，因此只修“无帧时不得谎报成功/不得把空文件当录像”的应用层行为。
 
+## P1 恢复修复（2026-11-21 追加）
+
+负责人复现：隔离目录中的 `.webm` 实际为 268881 字节，但 `recording:append` 只更新内存、崩溃退出时 JSON 仍为
+`status:"recording", bytes:0` 且没有 `duration`；此前的 `usableRecording = Number(item.bytes) > 0` 把这段
+可恢复录像永久判成“无画面”。这是对“保留录像/进度”约束的回归。
+
+修复（不改算法、不迁移数据）：
+
+- **以实际字节为准**：desktop 在 `recording:list` 用 `fs.stat` 读取 `.webm` 真实大小；browser 在
+  `storage.list()` 汇总 IndexedDB `chunks` 的 blob 大小。两者都只添加运行时字段 `actualBytes`，
+  **不写回、不改写、不删除**既有 JSON/IndexedDB 元数据、报告或文件。
+- **区分未知与真实零**：`usableRecording` 只把 `actualBytes === 0` 当作确定的空文件；`actualBytes`
+  缺失/未知（旧元数据、统计失败）不再被当作“没有内容”，而是允许解码尝试。真正 0 字节仍显示
+  “无画面”并拒绝无意义分析；实际非空的中断录像可播放、进入分析并保存报告。
+- **录制中的 metadata**：desktop list 额外返回 `active`，应用把 `active` 或当前 `state.capture.id`
+  对应项排除在“可恢复/可分析”之外，避免把正在写入的 JSON 误判为中断录像。
+- **浏览器未 finish 的录像**：`storage.begin` 从未写过 `bytes` 的旧数据也能靠 chunks 恢复；
+  回归覆盖“已写 chunks、未 finish、重载后可分析，且原 metadata 仍无 bytes/保持 recording”。
+- **档案核对**：不再用“localStorage 有非空字符串”判定已保存档案；现在只有能通过
+  `validateProfile()` 的已存档案才算“已确认”，损坏/越界值回退默认值并显示“待核对”，且不重写原值。
+- 处理面保持窄：仍使用原 recording ID、`validId`、IPC 信任边界、`doctorgame-video://` 协议与
+  安全配置；未新增迁移或重写路径。
+
 ## 实际执行与结果
 
 命令（Node 通过上述路径提供；本机没有 `pnpm`，使用等价 npm/npx 入口）：
@@ -67,15 +90,18 @@ doctorgame 借鉴的两点：
 | 命令 | 结果 |
 | --- | --- |
 | `npm test`（11 项算法测试） | 通过；算法/样本资格代码未改。 |
-| `npm run test:ui`（10 项浏览器测试） | 通过；含原有 5 项与新增 `tests/ui/player-experience.spec.js` 5 项。 |
-| `npx playwright test tests/ui/player-experience.spec.js` | 5 项通过：首访核对/保存返回、建议原因就近、零候选恢复+回访 1280×720、无帧取消/超时/恢复、空文件不可分析。 |
+| `npm run test:ui`（12 项浏览器测试） | 通过；原有 5 项 + `tests/ui/player-experience.spec.js` 7 项（含新增的浏览器 chunks 恢复与损坏档案回退）。 |
+| `npx playwright test tests/ui/player-experience.spec.js` | 7 项通过：首访核对/保存返回、建议原因就近、零候选恢复+回访 1280×720、无帧取消/超时/恢复、真 0 文件不可分析、未完成 chunks 恢复、损坏档案回退待核对。 |
+| `node tests/electron-recovery.mjs`（本机经测试用 `--no-sandbox` 包装） | 通过：真实 WebM 268880 字节 + 陈旧 `bytes:0/status:recording/无 duration` 元数据，重启后可播放并完成分析，重启后继续复盘，原文件 SHA-256 与 JSON 逐字节不变；`artifacts/electron-recovery/dsh-sandbox/result.json`。 |
 | `node tests/electron-smoke.mjs` | 本机直接运行被 DSH 环境的 macOS sandbox 阻止（Chromium `sandbox initialization failed: Operation not permitted`），不是应用回归。改用仅测试用的 Electron 启动包装（`--no-sandbox`，应用代码与安全配置未改）后通过：隔离 data、导入/回放/确认/重启保留均通过，`result.json` 为 `passed:true`，产物在 `artifacts/electron/dsh-sandbox/`。 |
 | `tests/player-flow-audit.mjs`（负责人脚本的未修改副本 + 同一测试用 `--no-sandbox` 包装） | 通过，三组检查全部通过；after 截图与 `audit.json` 在 `artifacts/player-experience/dsh-after/`。原脚本、`docs/player-experience-audit.md`、`before` 目录未修改。 |
 
 新增回归覆盖：
 
-- 无帧/空采集：等待不入录制态、取消、8 秒超时、超时后无空记录、重选后正常录制；0 字节记录保留但不可分析。
+- 无帧/空采集：等待不入录制态、取消、8 秒超时、超时后无空记录、重选后正常录制；真 0 字节日志保留但不可分析。
+- 中断恢复：desktop 真实 WebM + 陈旧 `bytes:0/status:recording` 元数据，重启后播放、分析、再次重启继续复盘，原文件/元数据不变；browser 已写 chunks、未 finish、无 `bytes` 的录像重载后可恢复分析，元数据保持 `recording` 且无 `bytes`。
 - 首访：默认值提示、核对入口、“保存并返回工作台”直接返回、旧“保存玩家档案”行为仍可用。
+- 档案核对：损坏 JSON 或越界 DPI 回退默认并显示待核对，原值不被重写；合法已存档案不再显示待核对。
 - 回访：上一局缩略图/进度/继续按钮首屏可见，1280×720 下按钮 `y+height <= 720` 且在视口内，侧栏最近一局可用。
 - 建议原因：`recommend()` 原始原因在建议数字旁可见，“查看依据与复测”可展开。
 - 零候选：提示、零候选恢复块、手动标记区直接可见、可标记事件、取消分析保留录像的既有路径由负责人脚本复核。
@@ -100,3 +126,5 @@ doctorgame 借鉴的两点：
   `contextIsolation`、`sandbox`、`nodeIntegration` 配置未变。
 - 截图中的视频均为程序生成的合成画面（带水印），不代表真实对局，也不证明检测准确率或灵敏度改善。
 - 真实游戏窗口的“第一帧”等待时间、窗口最小化/恢复、托盘停止仍需 Windows/实际游戏窗口复核。
+- 中断恢复回归使用合成 WebM + 人工写入的陈旧元数据来模拟崩溃现场，不是原生进程崩溃复现，也不能替代 Windows 实机。
+- `actualBytes` 是列表时计算的运行时字段，不进入持久化元数据；因此恢复后的 JSON 仍保留 `bytes:0/status:recording` 是预期行为，不是迁移失败。

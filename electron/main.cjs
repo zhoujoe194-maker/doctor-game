@@ -109,7 +109,17 @@ else {
     });
     handle('recording:list', async () => {
       const files = (await fs.readdir(recordingDir)).filter(n => /^[0-9a-f-]+\.json$/.test(n));
-      const items = await Promise.all(files.map(n => fs.readFile(path.join(recordingDir, n), 'utf8').then(JSON.parse).catch(() => null)));
+      // JSON metadata is not the source of truth for file size: append() only
+      // updates memory, so a crash leaves bytes:0/status:recording even though the
+      // WebM is recoverable. Report the on-disk size as a runtime-only field and
+      // leave the stored metadata untouched.
+      const items = await Promise.all(files.map(async n => {
+        const item = await fs.readFile(path.join(recordingDir, n), 'utf8').then(JSON.parse).catch(() => null);
+        if (!item) return null;
+        try { item.actualBytes = (await fs.stat(recordingPath(item.id))).size; } catch { item.actualBytes = null; }
+        item.active = active.has(item.id);
+        return item;
+      }));
       return items.filter(Boolean).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     });
     handle('recording:folder', () => shell.openPath(recordingDir));
