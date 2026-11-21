@@ -150,7 +150,7 @@ function firstUseView() {
 
 function nextSessionCard() {
   return '<section class="next-session" aria-label="录制新对局"><div><h2>录下一局</h2><p>手动选择窗口，结束后分析。录像和档案只保存在本机。</p></div>' +
-    '<div class="next-actions"><button class="button primary" id="start-recording">' + icon('record') + '开始录制</button><button class="button secondary" id="import-video">' + icon('upload') + '导入录像</button></div></section>';
+    '<div class="next-actions"><button class="button secondary" id="start-recording">' + icon('record') + '开始录制</button><button class="button secondary" id="import-video">' + icon('upload') + '导入录像</button></div></section>';
 }
 
 function returningHomeView(item) {
