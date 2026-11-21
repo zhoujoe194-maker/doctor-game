@@ -36,7 +36,7 @@ doctorgame 借鉴的两点：
 
 这两点直接解决审查表 P2“回访主任务被新录制区挤出首屏、1280×720 下‘继续复盘’在 y=705.53、
 按钮被截断”：现在首屏第一张卡就是上一局，1280×720 下继续按钮完整位于视口内
-（主题截图见 `artifacts/player-experience/dsh-aimlabs-theme/08-returning-1440x900.png` / `11-returning-1280x720.png`；1280×720 边界由 `tests/ui/player-experience.spec.js:72` 继续覆盖）。
+（主题截图见 `artifacts/player-experience/dsh-aimlabs-theme/08-returning-1440x900.png` / `11-returning-1280x720.png`；1280×720 边界由 `tests/ui/player-experience.spec.js:95-104` 继续覆盖）。
 
 用户 2026-11-21 的新产品决定覆盖此前“保留森林绿”的约束：整个应用改用官方 Aimlabs Play 2.0
 图（Play 页，不是结果页）的深灰/炭黑背景、青蓝强调色、浅色正文色系；不保留浅绿主按钮或森林绿底。
