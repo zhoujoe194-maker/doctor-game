@@ -21,7 +21,16 @@ async function launch() {
   await expect.poll(() => page.evaluate(() => innerWidth)).toBe(1440);
 }
 async function home() { await page.getByRole('button', { name: '工作台', exact: true }).click(); }
-async function shot(name) { await page.evaluate(() => scrollTo(0, 0)); await page.screenshot({ path: path.join(out, name + '.png'), scale: 'css' }); }
+async function shot(name) {
+  await page.evaluate(() => scrollTo(0, 0));
+  for (const video of await page.locator('video').all()) {
+    if (await video.isVisible()) {
+      await expect.poll(() => video.evaluate(v => v.readyState)).toBeGreaterThanOrEqual(2);
+      await expect(video).toHaveJSProperty('seeking', false);
+    }
+  }
+  await page.screenshot({ path: path.join(out, name + '.png'), scale: 'css' });
+}
 async function importFixture() {
   const chooser = page.waitForEvent('filechooser');
   await page.getByRole('button', { name: '导入录像', exact: true }).click();
@@ -106,6 +115,8 @@ try {
   results.passed = true;
 } finally {
   await writeFile(path.join(out, 'audit.json'), JSON.stringify(results, null, 2));
-  await app?.close();
+  // Test failures during recording must not hang on the app's deliberate quit
+  // guard. Only this isolated test process is exited; retained files stay put.
+  if (app) { if (!results.passed) await app.evaluate(({ app }) => app.exit(1)).catch(() => {}); else await app.close(); }
 }
 console.log(JSON.stringify({ passed: results.passed, checks: results.checks, userData: data }, null, 2));
