@@ -1,15 +1,68 @@
 import { AimTracker, detectTargets, estimateCameraMotion, grayscale, summarizeMotion, ANALYSIS_VERSION } from './analysis.js';
 import { storage } from './storage.js';
 
-export async function beginCapture(profile, onStop, onError) {
+// A live MediaStreamTrack is not proof of a picture: macOS native capture was
+// observed with a live track but videoWidth=0 and a 0-byte file. Only advertise
+// recording after a decodable frame actually arrives.
+export const CAPTURE_FRAME_TIMEOUT_MS = 8000;
+
+const abortError = () => new DOMException('已取消等待窗口画面。', 'AbortError');
+const stopStream = stream => { try { stream?.getTracks().forEach(track => track.stop()); } catch { /* already stopped */ } };
+const noFramesError = detail => Object.assign(new Error(detail), { code: 'NO_FRAMES' });
+
+export function waitForFirstVideoFrame(stream, { timeout = CAPTURE_FRAME_TIMEOUT_MS, signal } = {}) {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    video.muted = true; video.playsInline = true; video.preload = 'auto';
+    let settled = false, timer, poll;
+    const cleanup = () => {
+      settled = true; clearTimeout(timer); clearInterval(poll);
+      signal?.removeEventListener('abort', onAbort);
+      video.removeEventListener('loadeddata', check); video.removeEventListener('resize', check);
+      video.pause(); video.srcObject = null;
+    };
+    const succeed = () => { if (settled) return; const frame = { width: video.videoWidth, height: video.videoHeight }; cleanup(); resolve(frame); };
+    const fail = error => { if (settled) return; cleanup(); reject(error); };
+    const onAbort = () => fail(abortError());
+    const check = () => {
+      const track = stream.getVideoTracks?.()[0];
+      if (!track || track.readyState !== 'live') { fail(noFramesError('窗口画面已结束，没有收到可解码画面。')); return; }
+      if (video.videoWidth > 0 && video.videoHeight > 0 && video.readyState >= 2) succeed();
+    };
+    timer = setTimeout(() => {
+      const track = stream.getVideoTracks?.()[0];
+      const detail = !track ? '选中的窗口没有视频轨道。' : track.readyState !== 'live' ? '窗口画面已结束。' : '窗口没有输出可解码画面。';
+      fail(noFramesError(`${detail} 等待了 ${Math.round(timeout / 1000)} 秒仍未收到画面，录制没有开始。`));
+    }, timeout);
+    poll = setInterval(check, 100);
+    if (signal?.aborted) { onAbort(); return; }
+    signal?.addEventListener('abort', onAbort, { once: true });
+    video.addEventListener('loadeddata', check);
+    video.addEventListener('resize', check);
+    video.srcObject = stream;
+    // play() can stay pending forever for a track with no frames; polling and
+    // the timeout above are the authority, not the play promise.
+    try { const started = video.play(); started?.catch?.(() => {}); } catch { /* no frame yet */ }
+    check();
+  });
+}
+
+export async function beginCapture(profile, onStop, onError, { signal, onWaiting } = {}) {
   const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 60, max: 60 }, width: { ideal: 1920, max: 1920 }, height: { ideal: 1080, max: 1080 } }, audio: false });
+  if (signal?.aborted) { stopStream(stream); throw abortError(); }
+  onWaiting?.();
+  try { await waitForFirstVideoFrame(stream, { signal }); }
+  catch (error) { stopStream(stream); throw error; }
+  if (signal?.aborted) { stopStream(stream); throw abortError(); }
   const supported = ['video/webm;codecs=vp8', 'video/webm;codecs=vp9', 'video/webm'].find(t => MediaRecorder.isTypeSupported(t));
-  if (!supported) { stream.getTracks().forEach(t => t.stop()); throw new Error('当前浏览器不支持 WebM 录制，请使用桌面版或 Chrome。'); }
+  if (!supported) { stopStream(stream); throw new Error('当前浏览器不支持 WebM 录制，请使用桌面版或 Chrome。'); }
   let id;
   try { id = await storage.begin({ profile, mimeType: supported, title: stream.getVideoTracks()[0].label || '游戏窗口' }); }
-  catch (error) { stream.getTracks().forEach(t => t.stop()); throw error; }
+  catch (error) { stopStream(stream); throw error; }
   const startedAt = performance.now();
-  const recorder = new MediaRecorder(stream, { mimeType: supported, videoBitsPerSecond: 5_000_000 });
+  let recorder;
+  try { recorder = new MediaRecorder(stream, { mimeType: supported, videoBitsPerSecond: 5_000_000 }); }
+  catch (error) { stopStream(stream); await storage.finish(id, { duration: 0, bytes: 0, empty: true, incomplete: true }).catch(() => {}); throw error; }
   let queue = Promise.resolve(), failed = null, size = 0, stopping = false;
   const stop = () => { if (!stopping) { stopping = true; if (recorder.state !== 'inactive') recorder.stop(); } };
   const stopOnError = error => { if (!failed) { failed = error; onError(error); } stop(); };
@@ -26,7 +79,9 @@ export async function beginCapture(profile, onStop, onError) {
     stream.getTracks().forEach(t => t.stop());
     await queue;
     try {
-      const item = await storage.finish(id, { duration: (performance.now() - startedAt) / 1000, bytes: size, incomplete: Boolean(failed) });
+      // Preserve the file and metadata, but never present a 0-byte capture as a
+      // saved, analyzable recording. The UI uses bytes===0 to refuse analysis.
+      const item = await storage.finish(id, { duration: (performance.now() - startedAt) / 1000, bytes: size, empty: size === 0, incomplete: Boolean(failed) || size === 0 });
       await onStop(item);
     } catch (error) { onError(error, true); await window.doctorgame?.setBusy(false); }
   };
@@ -38,7 +93,7 @@ export async function beginCapture(profile, onStop, onError) {
 function waitFor(target, event, signal, timeout = 12000) {
   return new Promise((resolve, reject) => {
     const done = () => { cleanup(); resolve(); };
-    const error = () => { cleanup(); reject(new Error('视频无法解码。请使用 MP4（H.264）或 WebM 录像。')); };
+    const error = () => { cleanup(); reject(new Error('无法读取录像画面。文件可能为空、损坏或编码不受支持；请重新录制或导入其他 MP4 / WebM 文件。')); };
     const aborted = () => { cleanup(); reject(new DOMException('分析已取消', 'AbortError')); };
     const timer = setTimeout(() => { cleanup(); reject(new Error('读取视频帧超时，请重试或换一段录像。')); }, timeout);
     const cleanup = () => { clearTimeout(timer); target.removeEventListener(event, done); target.removeEventListener('error', error); signal?.removeEventListener('abort', aborted); };
@@ -52,6 +107,7 @@ export async function inspectVideo(url, durationHint, signal) {
   const ready = waitFor(video, 'loadeddata', signal); video.src = url; video.load();
   try {
     await ready;
+    if (!video.videoWidth || !video.videoHeight) throw new Error('这段录像没有可解码的画面（可能是空文件或录制已中断）。请重新录制，或导入其他录像。');
     // MediaRecorder WebM may have no duration metadata; seek to discover it.
     if (!Number.isFinite(video.duration) && !durationHint) {
       const discovered = waitFor(video, 'seeked', signal); video.currentTime = 1e9; await discovered;
@@ -63,6 +119,7 @@ export async function inspectVideo(url, durationHint, signal) {
 }
 
 export async function analyzeVideo(url, item, onProgress, signal) {
+  if (!item || !(Number(item.bytes) > 0)) throw new Error('这段录像没有写入任何画面（0 字节），不能分析。请重新录制或导入其他录像。');
   const { video, duration } = await inspectVideo(url, item.duration, signal);
   const width = 640, height = Math.round(width * video.videoHeight / video.videoWidth);
   const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;

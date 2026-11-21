@@ -102,7 +102,9 @@ else {
     handle('recording:finish', async (id, metadata) => {
       const item = active.get(validId(id));
       if (!item) throw new Error('Recording not active');
-      const data = { ...item, ...metadata, id, bytes: item.bytes, status: 'ready' };
+      // An empty or interrupted capture stays on disk for transparency, but it is
+      // never advertised as a ready recording.
+      const data = { ...item, ...metadata, id, bytes: item.bytes, status: metadata?.incomplete ? 'incomplete' : 'ready' };
       await fs.writeFile(indexPath(id), JSON.stringify(data)); active.delete(id); updateTray(); return data;
     });
     handle('recording:list', async () => {

@@ -33,7 +33,7 @@ export const storage = {
   async finish(id, metadata) {
     if (window.doctorgame) return window.doctorgame.finish(id, metadata);
     const old = await transaction('recordings', 'readonly', s => s.get(id));
-    const item = { ...old, ...metadata, id, status: 'ready' };
+    const item = { ...old, ...metadata, id, status: metadata.incomplete ? 'incomplete' : 'ready' };
     await transaction('recordings', 'readwrite', s => s.put(item)); indices.delete(id); return item;
   },
   async list() {
@@ -49,6 +49,9 @@ export const storage = {
 export function loadProfile(fallback) {
   try { return JSON.parse(localStorage.getItem('sight-profile')) || fallback; } catch { return fallback; }
 }
+// Distinguish a first visit (defaults shown) from a profile the player saved.
+// Reads the existing identifier only; never migrates or rewrites stored data.
+export function hasSavedProfile() { try { return Boolean(localStorage.getItem('sight-profile')); } catch { return false; } }
 export function saveProfile(profile) { localStorage.setItem('sight-profile', JSON.stringify(profile)); }
 export function saveReport(report) { localStorage.setItem(`sight-report-${report.id}`, JSON.stringify(report)); }
 export function loadReport(id) { try { return JSON.parse(localStorage.getItem(`sight-report-${id}`)); } catch { return null; } }
