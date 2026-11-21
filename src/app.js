@@ -29,7 +29,27 @@ function loadInitialProfile() {
 // missing/unknown metadata must not be mistaken for a real empty recording.
 const activeRecording = item => Boolean(item) && (item.active === true || (state.capture && item.id === state.capture.id));
 const usableRecording = item => Boolean(item) && !activeRecording(item) && item.actualBytes !== 0;
-const recordingLabel = item => activeRecording(item) ? '正在录制' : item.actualBytes === 0 ? '无画面' : loadReport(item.id) ? '查看报告' : item.status === 'ready' ? '待分析' : '录制中断 · 可恢复';
+// Reading an old report is a boundary operation: a malformed profile or events
+// array must degrade the entry, never crash the shell or be rewritten/recomputed.
+function inspectReportObject(report) {
+  if (!report || typeof report !== 'object' || !Array.isArray(report.events)) return null;
+  try { return { report, result: recommend(report.events, report.profile, { demo: Boolean(report.demo) }) }; }
+  catch { return null; }
+}
+function readReportState(id) {
+  const report = loadReport(id);
+  if (!report) return { status: 'missing', report: null };
+  const inspected = inspectReportObject(report);
+  return inspected ? { status: 'valid', ...inspected } : { status: 'invalid', report };
+}
+const recordingLabel = item => {
+  if (activeRecording(item)) return '正在录制';
+  if (item.actualBytes === 0) return '无画面';
+  const state = readReportState(item.id);
+  if (state.status === 'valid') return '查看报告';
+  if (state.status === 'invalid') return '报告无法读取';
+  return item.status === 'ready' ? '待分析' : '录制中断 · 可恢复';
+};
 const paths = {
   grid: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
   play: '<path d="m9 5 11 7-11 7Z"/>',
@@ -141,10 +161,9 @@ function profileSummaryCard() {
 
 function firstUseView() {
   return '<section class="page-head first-head"><div><h1>录制与复盘</h1><p>选择一段对局，回看你的瞄准过程。</p></div></section>' +
-    '<div class="home-grid home-first"><section class="capture-surface" aria-label="开始录制"><div class="capture-copy"><h2>录制一局</h2><p>选择一个完整的游戏窗口。录制在后台进行，画面和报告只保存在本机。</p></div>' +
+    '<div class="home-grid home-first"><section class="capture-surface" aria-label="开始录制"><div class="capture-copy"><h2>录制一局</h2><p>选择一个完整的游戏窗口。结束后分析候选片段；画面和报告只保存在本机。</p></div>' +
     '<div class="primary-actions"><button class="button primary large" id="start-recording">' + icon('record') + '开始录制</button><button class="button secondary large" id="import-video">' + icon('upload') + '导入录像</button></div>' +
-    '<ul class="fact-list"><li>手动选择窗口</li><li>不录制音频</li><li>结束后分析候选片段</li></ul>' +
-    '<div class="surface-foot"><button class="text-button" id="load-demo">没有录像？先看合成示例 ' + icon('arrow') + '</button><span>MP4 / WebM · 单文件最多 2 GB</span></div></section>' +
+    '<div class="surface-foot"><button class="text-button" id="load-demo">没有录像？先看合成示例 ' + icon('arrow') + '</button><span>不录制音频 · 支持 MP4 / WebM · 单文件最多 2 GB</span></div></section>' +
     profileSummaryCard() + '</div>';
 }
 
@@ -158,14 +177,19 @@ function returningHomeView(item) {
   if (!usable) {
     return '<section class="home-grid home-first"><section class="recent-session no-footage session-surface" aria-label="最近一局"><div class="no-footage-panel"><span class="no-footage-label">上一段录像</span><h1>没有收到可回放画面</h1><p>磁盘上的录像文件为空（0 字节）。原文件与元数据仍保留在本机，可以重新选择窗口或导入另一段录像。</p><div class="recent-actions"><button class="button primary" id="retry-capture">' + icon('record') + '重新选择窗口</button><button class="button secondary" data-import-video>' + icon('upload') + '导入录像</button></div></div></section>' + profileSummaryCard() + '</section>';
   }
-  const report = loadReport(item.id);
-  let result = null;
-  try { if (report) result = recommend(report.events, report.profile, { demo: false }); } catch { result = null; }
+  const reportState = readReportState(item.id);
+  const report = reportState.status === 'valid' ? reportState.report : null;
+  const result = reportState.status === 'valid' ? reportState.result : null;
   const pending = report ? report.events.filter(e => e.included && !e.reviewed).length : 0;
+  const progress = report
+    ? '<p class="session-progress">已确认且可量化 <strong>' + result.reviewed + '</strong> / ' + MIN_REVIEWED + ' 起步样本 · 待确认 <strong>' + pending + '</strong> 个片段</p>'
+    : reportState.status === 'invalid'
+      ? '<p class="session-progress session-problem" role="note">这份报告无法读取：存档数据不完整。录像仍保留；可以继续录制、导入，或从对局记录打开其他报告。</p>'
+      : '<p class="session-progress">' + (item.status === 'ready' ? '录像已保存，尚未分析。' : '录制中断，已写入的画面仍保留，可尝试恢复分析。') + '</p>';
   return '<div class="home-grid home-return"><section class="recent-session session-surface" aria-label="最近一局"><div class="session-media"><video id="recent-preview" muted playsinline preload="metadata" aria-label="上一局画面预览"></video><span class="media-time">' + time(item.duration) + '</span></div>' +
     '<div class="session-info"><div class="session-meta"><span>上次录制</span><time>' + new Date(item.createdAt).toLocaleString('zh-CN') + '</time></div><h1>继续上一局</h1><h2 class="session-title">' + esc(item.title || '游戏录像') + '</h2>' +
-    (report ? '<p class="session-progress">已确认且可量化 <strong>' + result.reviewed + '</strong> / ' + MIN_REVIEWED + ' 起步样本 · 待确认 <strong>' + pending + '</strong> 个片段</p>' : '<p class="session-progress">' + (item.status === 'ready' ? '录像已保存，尚未分析。' : '录制中断，已写入的画面仍保留，可尝试恢复分析。') + '</p>') +
-    '<div class="session-actions"><button class="button primary" data-recording="' + esc(item.id) + '">' + icon('play') + (report ? '继续复盘' : '打开并分析') + '</button><button class="text-button" data-nav="history">全部记录 ' + icon('arrow') + '</button></div></div></section>' +
+    progress +
+    '<div class="session-actions"><button class="button ' + (reportState.status === 'invalid' ? 'secondary' : 'primary') + '" data-recording="' + esc(item.id) + '">' + icon('play') + (report ? '继续复盘' : reportState.status === 'invalid' ? '打开记录' : '打开并分析') + '</button><button class="text-button" data-nav="history">全部记录 ' + icon('arrow') + '</button></div></div></section>' +
     '<aside class="home-side">' + profileSummaryCard() + nextSessionCard() + '</aside></div>';
 }
 
@@ -210,8 +234,8 @@ function groupRecordings(items) {
 }
 function libraryCard(item) {
   const usable = usableRecording(item);
-  const report = usable ? loadReport(item.id) : null;
-  const stateClass = !usable ? 'is-muted' : report ? '' : item.status === 'ready' ? 'is-pending' : 'is-warn';
+  const reportState = usable ? readReportState(item.id) : { status: 'missing' };
+  const stateClass = !usable ? 'is-muted' : reportState.status === 'invalid' ? 'is-warn' : reportState.status === 'valid' ? '' : item.status === 'ready' ? 'is-pending' : 'is-warn';
   return '<button class="library-card" data-recording="' + esc(item.id) + '" data-thumb-card="' + esc(item.id) + '">' +
     '<span class="library-thumb"><span class="thumb-fallback">' + icon('play') + '<span>' + (usable ? '加载预览…' : '无画面') + '</span></span><img alt="" hidden><span class="library-duration">' + time(item.duration) + '</span></span>' +
     '<span class="library-copy"><strong>' + esc(item.title || '游戏录像') + '</strong><span class="library-meta">' + (item.profile?.dpi ?? '—') + ' DPI · ' + (item.profile?.sensitivity ?? '—') + ' 灵敏度</span><span class="library-state ' + stateClass + '">' + recordingLabel(item) + '</span></span></button>';
@@ -312,6 +336,7 @@ function progressView() {
 function reportView() {
   const r = state.report;
   if (!r) return '<div class="large-empty">请先从对局记录中打开一份报告。</div>';
+  if (!inspectReportObject(r)) return '<div class="large-empty">这份报告的数据不完整，无法显示。录像仍保留；可以继续录制、导入，或从对局记录打开其他报告。<div class="empty-actions"><button class="button secondary" data-nav="history">返回对局记录</button></div></div>';
   return '<section class="report-page"><header class="page-head report-head"><div><h1>' + (r.demo ? '复盘示例' : '赛后复盘') + '</h1><p class="report-meta">' + (r.demo ? '<span class="demo-pill">合成示例 · 非真实对局</span> 程序生成的轨迹，只用于体验回放。' : esc(state.item?.title || '游戏录像') + ' · ' + time(r.duration) + ' · ' + r.profile.dpi + ' DPI · ' + r.profile.sensitivity + ' 灵敏度') + '</p></div><button class="button secondary" id="export-report">' + icon('download') + '导出报告</button></header>' +
     '<div class="report-layout"><section class="video-workspace" aria-label="录像与片段操作"><div id="evidence-stage" class="evidence-stage"></div><div class="timeline-panel"><div id="clip-timeline"></div><div class="seek-row"><label class="sr-only" for="replay-seek">录像播放位置</label><input id="replay-seek" type="range" min="0" max="' + r.duration + '" step="0.05" value="0" ' + (r.demo ? 'disabled' : '') + '><output id="replay-time">00:00 / ' + time(r.duration) + '</output></div></div><div id="playback-controls" class="playback-controls"></div></section>' +
     '<aside class="review-panel" aria-label="片段选择与确认"><div id="review-summary" class="review-summary" aria-label="复盘概览"></div><details id="clips-panel" class="clips-panel" ' + (innerWidth >= 1100 ? 'open' : '') + '><summary>片段 <span id="clip-total" class="count-badge">' + r.events.length + '</span><span class="collapse-hint">展开 / 收起</span></summary><label class="filter-label" for="event-filter">筛选<select id="event-filter"><option value="all">全部片段</option><option value="pending">待确认</option><option value="reviewed">已确认</option><option value="excluded">已排除</option>' + Object.entries(SCENE_LABELS).filter(([key]) => key !== 'unknown').map(([value, label]) => '<option value="' + value + '">' + label + '</option>').join('') + '</select></label><div id="events-list" class="events-list"></div></details><div id="evidence-controls" class="evidence-controls"></div></aside></div>' +
@@ -606,10 +631,14 @@ async function openRecording(id) {
   if (state.capture || state.capturePhase || state.busy) { notify('请先结束当前记录或分析。', true); return; }
   const item = state.recordings.find(r => r.id === id); if (!item) return;
   if (!usableRecording(item)) { notify('这段录像的实际文件为空（0 字节），不能进入分析。原文件与元数据仍保留在本机；请重新录制或导入其他录像。', true); return; }
+  const reportState = readReportState(id);
+  if (reportState.status === 'invalid') {
+    notify('这份报告的存档数据不完整，无法打开。录像和原报告仍保留；可以继续录制、导入，或打开其他报告。', true);
+    return;
+  }
   try {
     releaseMedia(); state.mediaUrl = await storage.url(item); state.item = item;
-    const report = loadReport(id);
-    if (report) { state.report = report; state.eventIndex = 0; state.filter = 'all'; navigate('report'); }
+    if (reportState.status === 'valid') { state.report = reportState.report; state.eventIndex = 0; state.filter = 'all'; navigate('report'); }
     else await runAnalysis(item);
   } catch (error) { notify(`打开录像失败：${error.message}`, true); }
 }

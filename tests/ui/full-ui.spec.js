@@ -100,3 +100,55 @@ test('a broken thumbnail keeps the recording entry recoverable', async ({ page }
   await expect(page.locator('#notice')).toContainText('录像已保留');
   await expect(page.locator('.library-card')).toHaveCount(1);
 });
+
+
+test('invalid stored reports degrade home and history without overwriting the report', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const file = await createSyntheticVideo(page, path.resolve('artifacts/fixtures/full-ui-invalid-report.webm'));
+  await page.goto('/');
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: '导入录像', exact: true }).click();
+  await (await chooser).setFiles(file);
+  await expect(page.getByRole('heading', { name: '赛后复盘', exact: true })).toBeVisible({ timeout: 60000 });
+  const key = await page.evaluate(() => Object.keys(localStorage).find(item => item.startsWith('sight-report-')));
+  const itemId = key.replace('sight-report-', '');
+  const recordingBefore = await page.evaluate(async id => {
+    const { storage } = await import('/src/storage.js');
+    const item = (await storage.list()).find(entry => entry.id === id);
+    return item ? { actualBytes: item.actualBytes, bytes: item.bytes, status: item.status } : null;
+  }, itemId);
+
+  // An out-of-range old profile must not crash the home shell or be shown as 0/20.
+  await page.evaluate(k => { const report = JSON.parse(localStorage.getItem(k)); report.profile.dpi = 0; localStorage.setItem(k, JSON.stringify(report)); }, key);
+  const invalidProfile = await page.evaluate(k => localStorage.getItem(k), key);
+  await page.reload();
+  await expect(page.getByRole('heading', { name: '继续上一局', exact: true })).toBeVisible();
+  await expect(page.locator('.session-problem')).toContainText('报告无法读取');
+  await expect(page.getByRole('button', { name: '开始录制', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '导入录像', exact: true })).toBeVisible();
+  await expect(page.getByTestId('quantified-count')).toHaveCount(0);
+  expect(await page.evaluate(k => localStorage.getItem(k), key)).toBe(invalidProfile);
+
+  // A null events array is the same report-read boundary.
+  const invalidEvents = await page.evaluate(k => { const report = JSON.parse(localStorage.getItem(k)); report.events = null; localStorage.setItem(k, JSON.stringify(report)); return localStorage.getItem(k); }, key);
+  await page.reload();
+  await expect(page.getByRole('heading', { name: '继续上一局', exact: true })).toBeVisible();
+  await expect(page.locator('.session-problem')).toBeVisible();
+  await page.getByRole('button', { name: '对局记录', exact: true }).click();
+  await expect(page.locator('.library-card')).toContainText('报告无法读取');
+  await page.locator('.library-card').click();
+  await expect(page.locator('#notice')).toContainText('报告的存档数据不完整');
+  await expect(page.getByRole('heading', { name: '对局记录', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '赛后复盘', exact: true })).toHaveCount(0);
+  // Navigation and other valid reports still work.
+  await page.locator('#load-demo').click();
+  await expect(page.getByRole('heading', { name: '复盘示例', exact: true })).toBeVisible();
+  expect(await page.evaluate(k => localStorage.getItem(k), key)).toBe(invalidEvents);
+  const recordingAfter = await page.evaluate(async id => {
+    const { storage } = await import('/src/storage.js');
+    const item = (await storage.list()).find(entry => entry.id === id);
+    return item ? { actualBytes: item.actualBytes, bytes: item.bytes, status: item.status } : null;
+  }, itemId);
+  expect(recordingAfter).toEqual(recordingBefore);
+  expect(errors).toEqual([]);
+});
