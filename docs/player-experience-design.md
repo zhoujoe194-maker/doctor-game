@@ -55,8 +55,9 @@ doctorgame 借鉴的两点：
 其它约束：
 
 - `src/analysis.js` 未修改：阈值、样本资格、`recommend()` 规则、存储标识与档案快照保持原样。
-- `electron/main.cjs` 只改录像收尾状态：`incomplete` 时写 `status:incomplete`，不删除文件；原记录、
-  报告、档案和 `sight-recordings` / `sight-profile` / `sight-report-*` 标识不变。
+- `electron/main.cjs` 只改录像状态与列表读取：`incomplete` 时写 `status:incomplete`，`recording:list` 用
+  `fs.stat` 返回运行时 `actualBytes`/`active`，不删除文件、不改写 JSON；原记录、报告、档案和
+  `sight-recordings` / `sight-profile` / `sight-report-*` 标识不变。
 - 录制仍为无音频、显式选择窗口、可取消；保留 MediaRecorder 正常成功路径。
 - 未做系统级采集改造：本轮没有证据定位 macOS 原生无帧根因，因此只修“无帧时不得谎报成功/不得把空文件当录像”的应用层行为。
 
@@ -92,7 +93,7 @@ doctorgame 借鉴的两点：
 | `npm test`（11 项算法测试） | 通过；算法/样本资格代码未改。 |
 | `npm run test:ui`（12 项浏览器测试） | 通过；原有 5 项 + `tests/ui/player-experience.spec.js` 7 项（含新增的浏览器 chunks 恢复与损坏档案回退）。 |
 | `npx playwright test tests/ui/player-experience.spec.js` | 7 项通过：首访核对/保存返回、建议原因就近、零候选恢复+回访 1280×720、无帧取消/超时/恢复、真 0 文件不可分析、未完成 chunks 恢复、损坏档案回退待核对。 |
-| `node tests/electron-recovery.mjs`（本机经测试用 `--no-sandbox` 包装） | 通过：真实 WebM 268880 字节 + 陈旧 `bytes:0/status:recording/无 duration` 元数据，重启后可播放并完成分析，重启后继续复盘，原文件 SHA-256 与 JSON 逐字节不变；`artifacts/electron-recovery/dsh-sandbox/result.json`。 |
+| `node tests/electron-recovery.mjs`（本机经测试用 `--no-sandbox` 包装） | 通过：真实 WebM（本次样例 268881 字节，约 268 KB）+ 陈旧 `bytes:0/status:recording/无 duration` 元数据，重启后可播放并完成分析，重启后继续复盘，原文件 SHA-256 与 JSON 逐字节不变；`artifacts/electron-recovery/dsh-sandbox/result.json`。 |
 | `node tests/electron-smoke.mjs` | 本机直接运行被 DSH 环境的 macOS sandbox 阻止（Chromium `sandbox initialization failed: Operation not permitted`），不是应用回归。改用仅测试用的 Electron 启动包装（`--no-sandbox`，应用代码与安全配置未改）后通过：隔离 data、导入/回放/确认/重启保留均通过，`result.json` 为 `passed:true`，产物在 `artifacts/electron/dsh-sandbox/`。 |
 | `tests/player-flow-audit.mjs`（负责人脚本的未修改副本 + 同一测试用 `--no-sandbox` 包装） | 通过，三组检查全部通过；after 截图与 `audit.json` 在 `artifacts/player-experience/dsh-after/`。原脚本、`docs/player-experience-audit.md`、`before` 目录未修改。 |
 
