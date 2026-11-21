@@ -61,7 +61,7 @@ doctorgame 借鉴的两点：
 - 主操作、选中态、时间线选中标记、链接、焦点环统一使用青蓝色；`--green`、`--forest` 等旧变量名
   为兼容现有组件保留，但值已改为暗色/青蓝色系。
 - 成功/提示、警告、危险仍分别使用青蓝、琥珀、珊瑚红语义色；disabled 降低不透明度但保持可读。
-- 品牌 `assets/mark.svg`、`index.html` 的 `theme-color`、Electron 窗口初始背景与托盘色同步更新；
+- 品牌 `assets/mark.svg`、Windows 打包图标 `build/doctorgame.png` / `build/doctorgame.ico`、`index.html` 的 `theme-color`、Electron 窗口初始背景与托盘色同步更新；
   品牌名称、十字准星图形结构和中文界面不变。
 - 视频预览、录制预览和复盘视频不加 `filter` 或颜色叠加；只调整周边容器与控件。
 - 布局与信息层级不变：前述“继续上一局”、首访开始录制/导入、录制停止入口、建议原因、零候选恢复
