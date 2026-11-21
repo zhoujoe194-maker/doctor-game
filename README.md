@@ -26,10 +26,11 @@ doctorgame 希望把「灵敏度不顺手」拆成可回看的具体问题：击
 
 Windows x64 测试者下载版本化的 `doctorgame-0.2.0-beta.1-win-x64-setup.exe`，
 双击安装，再从开始菜单启动；无需 Node.js、pnpm 或开发服务器。
-[下载安装包 ZIP](https://github.com/zhoujoe194-maker/doctor-game/actions/runs/44741155789/artifacts/14630254510)
-（需登录 GitHub，保留至 2026-12-20；解压后运行其中的 setup.exe）。
-这是未签名测试包，下载入口、SHA-256 和实际验收状态见
-[测试版验收记录](docs/desktop-beta-validation.md)，安装与数据保留说明见
+[下载本轮深色主题评审包 ZIP](https://github.com/zhoujoe194-maker/doctor-game/actions/runs/44924126720/artifacts/14715531252)
+（需登录 GitHub，保留至北京时间 2026-12-22；解压后运行其中的 setup.exe）。
+这是草稿 PR 的未签名评审构建，版本文件名沿用 beta.1，以本轮链接和校验值区分旧包。
+下载入口、SHA-256 和实际验收状态见
+[玩家流程独立验收](docs/player-experience-validation.md)，安装与数据保留说明见
 [Windows 使用说明](docs/windows.md)。源码仓库不存放安装包或玩家录像。
 
 ## 开发运行

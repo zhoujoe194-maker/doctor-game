@@ -71,6 +71,38 @@ DSH 从自己目录回报 branch/SHA、12项skills、实际读取文档、Aimlab
 早期一次并行桌面审查的关闭隐藏等待超时；清理仅限该隔离测试进程，之后顺序完整复跑通过。
 审查驱动补上失败时退出隔离进程的清理，以及截图等待视频解码；没有为此修改产品关闭逻辑。
 
+## 本轮 Windows CI 与下载
+
+提交 `b4501e6a71e8909670ac79123011fa0e4a0b308f` 的
+[Windows CI #4](https://github.com/zhoujoe194-maker/doctor-game/actions/runs/44924126720) 全部通过。
+这是本轮实际新运行的结果，使用 Windows 托管运行器与合成录像，不是游戏硬件结论。
+
+| 检查 | 实际结果 |
+| --- | --- |
+| 算法 / 浏览器 | 11 / 12 项通过 |
+| 未签名 NSIS 构建、checksum 与 sidecar | 通过 |
+| 安装、开始菜单快捷方式、移除外部 Node/pnpm PATH 后启动 | 通过；安装退出0、实际打开窗口 |
+| 已安装应用导入、解码、跳转、慢放、确认/排除、重启保留 | 通过 |
+| 测试专用 beta.2 升级 | 档案、报告、录像字节、当局设置保持；beta.2 不作为分发包 |
+| 卸载 | 程序/开始菜单入口移除，录像、元数据、档案/报告保留 |
+| Steam 映射离线检查 | 通过；没有上传或 SetLive |
+
+[下载本轮 Windows x64 评审安装包 ZIP](https://github.com/zhoujoe194-maker/doctor-game/actions/runs/44924126720/artifacts/14715531252)
+（登录 GitHub，保留至北京时间 2026-12-22）；
+[下载 CI 验证记录](https://github.com/zhoujoe194-maker/doctor-game/actions/runs/44924126720/artifacts/14715068143)。
+
+解压后运行 `release/0.2.0-beta.1/installer/doctorgame-0.2.0-beta.1-win-x64-setup.exe`。
+本轮保留 package 版本，文件名与旧 beta.1 相同，请以这个运行链接和下方 **setup.exe SHA-256** 区分。
+这是草稿 PR 的未签名评审构建，不是正式 Release。
+
+```text
+642dbab6a1781ab00365953b237d9a7d5df33cc88918b57119b679444eab59ab
+```
+
+外层 artifact ZIP 的 SHA-256 为 `86674368929fbc618b474f24d1fff25a9ca671f88a49c480344fa478dce4d15e`，
+与 exe 校验值分别记录。安装器校验由 CI 从构建后的实际文件计算并与 sidecar 核对。
+后续若只补文档且跳过 CI，以本段标明的应用/测试提交为准。
+
 ## 怎样亲自体验
 
 本地独立应用：
@@ -87,7 +119,7 @@ open -n release/0.2.0-beta.1-review.a4b3c06/doctorgame-darwin-arm64/doctorgame.a
 
 先检查默认设置提示→编辑档案→保存并返回→导入测试录像→点击片段/慢放/确认→退出重开继续。
 本机合成样片在 `artifacts/player-experience/合成测试对局.webm`，明确不是实战样本。
-源码方式仍可 `npm start`。不要把此前 Windows beta.1 安装包当成本轮新主题。
+源码方式仍可 `npm start`。Windows 使用上方本轮 CI 的评审包；不要把此前同名 beta.1 包当成本轮新主题。
 
 ## 仍需 Windows 游戏硬件与用户决定
 
@@ -96,5 +128,5 @@ Vanguard、长录制、FPS/CPU/GPU/内存仍未在本轮实测。负责人测试
 恢复窗口由测试驱动调用；权限拒绝/正常录制画面为明确的合成适配器。macOS 原生无帧根因仍存在，
 这轮修正的是可信状态与恢复，不代表跨平台采集已验证。算法准确率与灵敏度改善均未因此得到证明。
 
-上轮 Windows 安装/升级是历史基线；本轮不据此重新宣称通过。没有合并、正式 Release、Steam上传或上架。
+上轮 Windows 安装/升级是历史基线；本轮新增 CI 结果独立记录于上方。没有合并、正式 Release、Steam上传或上架。
 最终视觉与体验请用户评审；8秒无帧等待是当前可调整的工程取舍，真实Windows窗口验证后可另行决定。
