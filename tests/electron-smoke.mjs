@@ -28,7 +28,7 @@ async function launch() {
     cwd: process.cwd(), env, timeout: 45000 });
   page = await desktop.firstWindow();
   page.on('pageerror', error => errors.push(error.message));
-  await expect(page.getByRole('heading', { name: '录制与复盘', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^(录制与复盘|继续上一局)$/ })).toBeVisible();
   assert.equal(await page.evaluate(() => typeof window.require), 'undefined');
   assert.equal(await page.evaluate(() => window.doctorgame.platform), process.platform);
   const prefs = await desktop.evaluate(({ BrowserWindow }) => {
@@ -114,10 +114,10 @@ try {
       await page.screenshot({ path: path.join(output, `report-${width}x${height}.png`), fullPage: true, scale: 'css' });
     }
     await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(1440, 900));
-    await page.getByRole('button', { name: '工作台', exact: true }).click();
+    await page.getByRole('button', { name: '录制', exact: true }).click();
     await expect(page.locator('#recent-preview')).toHaveJSProperty('videoWidth', 1280);
     await page.screenshot({ path: path.join(output, 'workspace-1440x900.png'), fullPage: true, scale: 'css' });
-    await page.getByRole('button', { name: '编辑玩家档案' }).click();
+    await page.getByRole('button', { name: '编辑档案' }).click();
     await page.locator('[name="dpi"]').fill('1600');
     await page.getByRole('button', { name: '保存玩家档案' }).click();
     await expect(page.locator('#profile-feedback')).toContainText('已保存');

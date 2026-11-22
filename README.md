@@ -10,11 +10,12 @@ doctorgame 希望把「灵敏度不顺手」拆成可回看的具体问题：击
 
 ## 界面预览
 
-![doctorgame 工作台：深灰与青蓝主题的 Electron 评审版](docs/images/player-experience/after/returning.png)
+![doctorgame：顶部导航与上一局画面主导的 Electron 评审版](docs/images/full-ui/after/returning.png)
 
-![赛后复盘：Electron 导入的合成测试录像，非真实游戏](docs/images/player-experience/after/report.png)
+![赛后复盘：Electron 导入的合成测试录像，非真实游戏](docs/images/full-ui/after/report-stable.png)
 
-最新[玩家流程审查、三组前后截图与独立验收](docs/player-experience-validation.md)。
+最新[全界面重设计、六组前后截图与独立验收](docs/full-ui-validation.md)。
+保留上一轮[玩家流程审查与验收基线](docs/player-experience-validation.md)。
 此前 Windows beta.1 的[安装与升级验证基线](docs/desktop-beta-validation.md)继续保留；
 此前安装包不包含本轮深色主题，当前评审分支尚未合并。
 

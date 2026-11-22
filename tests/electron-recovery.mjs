@@ -32,7 +32,7 @@ async function launch() {
     cwd: root, timeout: 45000
   });
   page = await desktop.firstWindow();
-  await expect(page.getByRole('heading', { name: '录制与复盘', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /^(录制与复盘|继续上一局)$/ })).toBeVisible();
   await page.evaluate(() => window.scrollTo(0, 0));
 }
 async function close() { if (desktop) { await desktop.close(); desktop = null; } }

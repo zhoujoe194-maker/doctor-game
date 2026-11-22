@@ -16,19 +16,20 @@ const results = { label, userData: data, capture: 'canvas adapter; real Electron
 async function launch() {
   app = await electron.launch({ args: [root, '--user-data-dir=' + data] });
   page = await app.firstWindow(); window = await app.browserWindow(page);
-  await page.getByRole('heading', { name: '录制与复盘', exact: true }).waitFor();
+  await page.getByRole('heading', { name: /^(录制与复盘|继续上一局)$/ }).waitFor();
   await window.evaluate(w => w.setContentSize(1440, 900));
   await expect.poll(() => page.evaluate(() => innerWidth)).toBe(1440);
 }
-async function home() { await page.getByRole('button', { name: '工作台', exact: true }).click(); }
+async function home() { await page.getByRole('button', { name: '录制', exact: true }).click(); }
 async function shot(name) {
   await page.evaluate(() => scrollTo(0, 0));
   for (const video of await page.locator('video').all()) {
     if (await video.isVisible()) {
-      await expect.poll(() => video.evaluate(v => v.readyState)).toBeGreaterThanOrEqual(2);
+      await expect.poll(() => video.evaluate(v => v.readyState)).toBe(4);
       await expect(video).toHaveJSProperty('seeking', false);
     }
   }
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   await page.screenshot({ path: path.join(out, name + '.png'), scale: 'css' });
 }
 async function importFixture() {
@@ -44,9 +45,11 @@ async function selectSynthetic() {
 try {
   await launch(); await shot('first-use');
   results.firstText = await page.locator('main').innerText();
-  await page.getByRole('button', { name: '编辑玩家档案' }).click();
+  await page.getByRole('button', { name: '编辑档案' }).click();
+  await shot('profile');
   await page.locator('[name="dpi"]').fill('800');
-  await page.getByRole('button', { name: '保存玩家档案', exact: true }).click();
+  await page.getByRole('button', { name: '保存并返回录制', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '录制与复盘', exact: true })).toBeVisible();
   results.profileAfterSave = await page.locator('main').innerText();
   await home(); await importFixture(); await report();
   const item = (await page.evaluate(() => window.doctorgame.list()))[0];
@@ -61,21 +64,26 @@ try {
   await expect(page.locator('#replay')).toHaveJSProperty('playbackRate', 0.5);
   await page.locator('[data-event="0"]').click(); await page.locator('#exclude-event').click();
   results.reportText = await page.locator('main').innerText(); await shot('report');
+  await window.evaluate(w => w.setContentSize(1280, 720));
+  await expect.poll(() => page.evaluate(() => innerWidth)).toBe(1280);
+  for (const id of ['#replay', '#playback-rate', '#confirm-event', '#exclude-event']) await expect(page.locator(id)).toBeInViewport({ ratio: 1 });
+  await shot('report-1280');
+  await window.evaluate(w => w.setContentSize(1440, 900));
   const stored = await page.evaluate(id => localStorage.getItem('sight-report-' + id), item.id);
   const digest = createHash('sha256').update(await readFile(path.join(data, 'recordings', item.id + '.webm'))).digest('hex');
   await home(); await expect(page.locator('#recent-preview')).toHaveJSProperty('videoWidth', 1280); await shot('returning');
   await window.evaluate(w => w.setContentSize(1280, 720)); await expect.poll(() => page.evaluate(() => innerWidth)).toBe(1280);
   results.continueBounds = await page.getByRole('button', { name: '继续复盘', exact: true }).boundingBox(); await shot('returning-1280');
   await window.evaluate(w => w.setContentSize(1440, 900));
-  await page.getByRole('button', { name: '编辑玩家档案' }).click(); await page.locator('[name="dpi"]').fill('1600');
+  await page.getByRole('button', { name: '编辑档案' }).click(); await page.locator('[name="dpi"]').fill('1600');
   await page.getByRole('button', { name: '保存玩家档案', exact: true }).click();
   await app.close(); await launch(); await page.getByRole('button', { name: '继续复盘', exact: true }).click(); await report();
   assert.equal(await page.evaluate(id => localStorage.getItem('sight-report-' + id), item.id), stored);
   assert.equal(createHash('sha256').update(await readFile(path.join(data, 'recordings', item.id + '.webm'))).digest('hex'), digest);
   assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('sight-profile')).dpi), 1600);
-  await expect(page.locator('.page-heading')).toContainText('800 DPI');
+  await expect(page.locator('.report-head')).toContainText('800 DPI');
   results.checks.push('import/seek/0.5x/confirm/exclude/restart/recording bytes/old 800 DPI vs current 1600');
-  await home(); await page.getByRole('button', { name: '编辑玩家档案' }).click(); await page.locator('[name="dpi"]').fill('800');
+  await home(); await page.getByRole('button', { name: '编辑档案' }).click(); await page.locator('[name="dpi"]').fill('800');
   await page.getByRole('button', { name: '保存玩家档案', exact: true }).click(); await home();
   // Only this isolated test process substitutes source enumeration and getDisplayMedia.
   await app.evaluate(({ desktopCapturer, nativeImage }) => {
@@ -100,7 +108,7 @@ try {
   await expect(page.locator('#live-preview')).toHaveJSProperty('videoWidth', 1280); await shot('recording');
   await window.evaluate(w => w.minimize()); await expect.poll(() => window.evaluate(w => w.isMinimized())).toBe(true);
   await window.evaluate(w => { w.restore(); w.show(); });
-  await page.getByRole('button', { name: '玩家档案', exact: true }).click(); await expect(page.locator('#stop-banner')).toBeVisible();
+  await page.getByRole('button', { name: '档案', exact: true }).click(); await expect(page.locator('#stop-banner')).toBeVisible();
   await window.evaluate(w => w.close()); await expect.poll(() => window.evaluate(w => w.isVisible())).toBe(false);
   await window.evaluate(w => w.show());
   await expect.poll(async () => { const r = (await page.evaluate(() => window.doctorgame.list()))[0]; return (await readFile(path.join(data, 'recordings', r.id + '.webm'))).length; }, { timeout: 10000 }).toBeGreaterThan(0);
