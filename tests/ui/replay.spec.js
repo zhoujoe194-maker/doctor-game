@@ -86,5 +86,38 @@ test('keyboard reaches recording, modal cancellation returns focus, small window
   await expect(page.getByRole('dialog')).not.toBeVisible();
   await expect(page.locator('#start-recording')).toBeFocused();
   await page.keyboard.press('Tab');
-  await expect(page.getByRole('button', { name: '导入录像', exact: true })).toBeFocused();
+  const importButton = page.getByRole('button', { name: '导入录像', exact: true });
+  await expect(importButton).toBeFocused();
+  // Simulate the Windows CI race: the native close has already restored focus and
+  // the player has moved to Import; a late close event must not steal it back.
+  await page.evaluate(() => document.querySelector('#source-dialog').dispatchEvent(new Event('close')));
+  await expect(importButton).toBeFocused();
+});
+
+test('source dialog returns focus to its actual launcher and ignores a late close', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.doctorgame = { platform: 'test', list: async () => [], setBusy: async () => {}, onStop() {}, sources: async () => [] };
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: '对局记录', exact: true }).click();
+  const historyStart = page.locator('#start-recording');
+  await historyStart.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.keyboard.press('Tab');
+  expect(await page.evaluate(() => document.activeElement.closest('dialog') !== null)).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).not.toBeVisible();
+  await expect(historyStart).toBeFocused();
+  await page.keyboard.press('Tab');
+  const importButton = page.getByRole('button', { name: '导入录像', exact: true });
+  await expect(importButton).toBeFocused();
+  await page.evaluate(() => document.querySelector('#source-dialog').dispatchEvent(new Event('close')));
+  await expect(importButton).toBeFocused();
+  await historyStart.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.locator('#close-source').click();
+  await expect(page.getByRole('dialog')).not.toBeVisible();
+  await expect(historyStart).toBeFocused();
 });

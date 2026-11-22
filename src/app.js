@@ -557,12 +557,23 @@ function bind() {
 function cancelCapture() { state.captureAbort?.abort(); }
 function reselectCapture() { state.reselectCapture = true; state.captureAbort?.abort(); }
 
+function restoreSourceDialogFocus(dialog, trigger) {
+  const active = document.activeElement;
+  const stuck = !active || active === document.body || active === document.documentElement || active === dialog || dialog.contains(active);
+  if (!stuck) return; // native close or the player has already moved focus to another control
+  if (trigger instanceof HTMLElement && trigger.isConnected && !['BODY', 'HTML'].includes(trigger.tagName)) trigger.focus({ preventScroll: true });
+}
+
 async function startRecording() {
   if (state.capture || state.capturePhase || state.busy) return;
   if (!navigator.mediaDevices?.getDisplayMedia) { notify('请在桌面版或支持屏幕录制的 Chrome / Edge 中打开。', true); return; }
   if (window.doctorgame) {
-    const dialog = $('#source-dialog'); dialog.showModal(); $('#source-list').textContent = '正在查找窗口…';
-    dialog.onclose = () => $('#start-recording')?.focus({ preventScroll: true });
+    const dialog = $('#source-dialog');
+    const trigger = document.activeElement instanceof HTMLElement && !['BODY', 'HTML'].includes(document.activeElement.tagName) ? document.activeElement : null;
+    dialog.showModal(); $('#source-list').textContent = '正在查找窗口…';
+    // The native close event is asynchronous; a late handler must not pull focus
+    // back from a control the player has already reached (Windows CI race).
+    dialog.onclose = () => restoreSourceDialogFocus(dialog, trigger);
     dialog.onkeydown = event => {
       if (event.key !== 'Tab') return;
       const targets = [...dialog.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), [href]')].filter(el => el.getClientRects().length);

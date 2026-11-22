@@ -205,12 +205,12 @@
 | 检查 | 结果 |
 | --- | --- |
 | `npm test` | 11 pass |
-| `npm run test:ui` | **18 pass**（原有 5 项 + 6 项 `full-ui.spec.js` + 既有 `player-experience` 7 项） |
+| `npm run test:ui` | **19 pass**（app 3 + full-ui 6 + player-experience 7 + replay 3） |
 | UI 自测 + AxeBuilder | 15 个状态（首访、复盘 1440/1280/760、回访 1440/1280、记录、档案、帮助、录制、零候选、回访带录像、选窗弹窗、390px 回访、坏报告首页）**0 axe violations**；截图 `artifacts/full-ui/dsh/01-15-*.png`，原始结果 `artifacts/full-ui/dsh/axe-report.json`（15 状态） |
 | 首屏边界 | 1440×900：播放速度 bottom 783.1、确认/排除 bottom 748.7；1280×720：播放速度 bottom 653.1、确认/排除 bottom 688.7；均在视口内 |
 | 实际字体 | 导航/按钮/输入/选择器 14px；字段 label 13px；场景/状态/样本/筛选 12px；建议原因 13px；帮助正文 14px |
 | 响应式 | 760/390/320 宽度无横向溢出；720×450 作为 200% 缩放的布局近似也无横向溢出 |
-| 新增回归 | `tests/ui/full-ui.spec.js`：无侧栏/顶部导航/首访任务、复盘首屏控件、历史懒加载真实缩略图、档案/帮助结构、坏预览仍保留录像、坏报告不被首页/记录入口卡死且不重写 |
+| 新增回归 | `tests/ui/full-ui.spec.js`：无侧栏/顶部导航/首访任务、复盘首屏控件、历史懒加载真实缩略图、档案/帮助结构、坏预览仍保留录像、坏报告不被首页/记录入口卡死且不重写；`tests/ui/replay.spec.js`：选窗关闭的真实触发入口、迟到 close 不抢用户已移动焦点 |
 
 限制：
 
@@ -218,4 +218,12 @@
 - 没有 Windows 游戏实机、原生采集、Vanguard、长录制或性能结论；历史懒加载只在单条/少量合成录像下验证，未做大量长录像压力测试。
 - 200% 缩放用 720×450 CSS 视口近似，不是 Electron `setZoomFactor(2)` 的完整验收；负责人环境仍需补测。
 - 真实录像不染色、不加滤镜；测试截图中的视频为带水印合成素材，不代表真实对局。
+
+### Windows CI 键盘竞态（2026-11-22）
+
+Windows CI job `137113651204` 在 `tests/ui/replay.spec.js:89` 失败：Escape 关闭选窗后焦点回到 `#start-recording`，用户 Tab 到“导入录像”后，`dialog.onclose` 的无条件 `#start-recording.focus()` 迟到执行，把焦点抢回录制。
+
+根因是 `dialog.close`/Escape 的原生焦点恢复与 `close` 事件异步派发交错：handler 无条件改写焦点，没有尊重玩家已经移动到的控件。修复在 `src/app.js` 捕获打开弹窗时的真实触发元素（首访按钮、历史页/恢复入口等），close 时只在焦点仍停留在 dialog、body 或无有效焦点时补回该触发元素；若用户已 Tab 到其他控件则完全不干预。modal trap、Escape 和关闭按钮路径不变。
+
+回归：`tests/ui/replay.spec.js` 在真实 Escape 后模拟迟到 close 并断言“导入录像”保持焦点；另覆盖从历史页启动时返回历史页触发按钮，以及关闭按钮返回触发按钮。本机 Chromium 已通过；**未在 Windows CI 复核前不声称 Windows 已修复**，由负责人正常环境复跑 CI。
 - 坏报告回归只覆盖 localStorage 报告字段损坏（非法 profile、events:null、无法解析 JSON），未扩展为存储迁移或自动修复；用户原报告和录像不会被改写。
