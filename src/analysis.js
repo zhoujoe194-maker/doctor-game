@@ -195,7 +195,9 @@ export function wilsonLower(successes, total) {
 
 export function recommend(events, profile, { demo = false } = {}) {
   const config = validateProfile(profile);
-  const valid = events.filter(e => e.reviewed && e.included && ['kill', 'death', 'duel'].includes(e.context) && ['overshoot', 'undershoot', 'settled'].includes(e.kind));
+  // HUD-only observations are not trajectory evidence even if a UI bug or an
+  // old record marks one reviewed. This is a second guard beside the UI rule.
+  const valid = events.filter(e => e.reviewed && e.included && e.source !== 'hud-ocr' && ['kill', 'death', 'duel'].includes(e.context) && ['overshoot', 'undershoot', 'settled'].includes(e.kind));
   const counts = Object.fromEntries(['overshoot', 'undershoot', 'settled'].map(kind => [kind, valid.filter(e => e.kind === kind).length]));
   const result = { status: 'insufficient', current: config.sensitivity, candidate: config.sensitivity, change: 0,
     reviewed: valid.length, candidates: events.length, counts, confidence: '尚不足以判断',

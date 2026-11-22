@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob: doctorgame-video:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' doctorgame-asset:; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob: doctorgame-video:; connect-src 'self' doctorgame-video: doctorgame-asset:; worker-src 'self' blob: doctorgame-asset:; object-src 'none'; base-uri 'none'; form-action 'none'">
   <meta name="theme-color" content="#0c0f12">
   <title>doctorgame · 灵敏度实验室</title>
   <link rel="icon" href="./assets/mark.svg" type="image/svg+xml">

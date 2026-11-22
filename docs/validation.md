@@ -28,3 +28,10 @@ Windows x64 分发目录已成功生成。打包只包含运行必需代码，�
 - 长对局的处理时间与存储压力。当前逐帧 seek 方案可取消，但还没有高吞吐解码流水线。
 
 截图位于 `artifacts/`，由端到端测试生成。Windows 包即使生成成功，也只说明跨平台打包完成，不代表上述 Windows 运行验证已经通过。
+
+
+## 2026-11-22 HUD 击杀/死亡候选的合成工程验证
+
+新增 `src/events.js`、`assets/ocr/` 本地 Tesseract.js 资源与 `tests/events.test.mjs`、`tests/ui/hud-events.spec.js`。22 项算法/纯函数测试与 24 项浏览器测试通过（包含真实画布 WebM → seek → 本地 Tesseract OCR → HUD kill/death 候选 → 0.5× 回放 → 确认/排除 → 重启保留；模型失败、零候选、取消保留和旧报告补填身份）。
+
+合成 8 秒 HUD 视频在测试中完成 23 次 OCR 扫描、产生 3 个候选，OCR 阶段约 2.5 秒；这只验证本机离线管线，不是真实游戏识别准确率。Windows/Electron 实际 OCR、真实 HUD 布局/缩放/语言/皮肤、长局吞吐、行级 precision/recall 和时间边界误差仍未验证。原始录像、旧档案/报告和存储标识未被迁移或删除；HUD 自动候选确认后仍不是量化样本。

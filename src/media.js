@@ -1,4 +1,5 @@
 import { AimTracker, detectTargets, estimateCameraMotion, grayscale, summarizeMotion, ANALYSIS_VERSION } from './analysis.js';
+import { detectHudEvents, associateHudEvents } from './events.js';
 import { storage } from './storage.js';
 
 // A live MediaStreamTrack is not proof of a picture: macOS native capture was
@@ -47,7 +48,7 @@ export function waitForFirstVideoFrame(stream, { timeout = CAPTURE_FRAME_TIMEOUT
   });
 }
 
-export async function beginCapture(profile, onStop, onError, { signal, onWaiting } = {}) {
+export async function beginCapture(profile, onStop, onError, { signal, onWaiting, playerName = '' } = {}) {
   const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 60, max: 60 }, width: { ideal: 1920, max: 1920 }, height: { ideal: 1080, max: 1080 } }, audio: false });
   if (signal?.aborted) { stopStream(stream); throw abortError(); }
   onWaiting?.();
@@ -57,7 +58,7 @@ export async function beginCapture(profile, onStop, onError, { signal, onWaiting
   const supported = ['video/webm;codecs=vp8', 'video/webm;codecs=vp9', 'video/webm'].find(t => MediaRecorder.isTypeSupported(t));
   if (!supported) { stopStream(stream); throw new Error('当前浏览器不支持 WebM 录制，请使用桌面版或 Chrome。'); }
   let id;
-  try { id = await storage.begin({ profile, mimeType: supported, title: stream.getVideoTracks()[0].label || '游戏窗口' }); }
+  try { id = await storage.begin({ profile, playerName: String(playerName || '').trim(), mimeType: supported, title: stream.getVideoTracks()[0].label || '游戏窗口' }); }
   catch (error) { stopStream(stream); throw error; }
   const startedAt = performance.now();
   let recorder;
@@ -161,8 +162,26 @@ export async function analyzeVideo(url, item, onProgress, signal) {
       if (index % 20 === 0) { onProgress({ fraction: index / total, processed, total, candidates: tracker.events.length + preaim.length }); await new Promise(r => setTimeout(r, 0)); }
     }
     flushMotion();
-    const events = [...tracker.finish().map(e => ({ ...e, context: 'unknown' })), ...preaim].sort((a, b) => a.start - b.start).map((e, i) => ({ ...e, id: `event-${i + 1}` }));
-    return { id: item.id, version: ANALYSIS_VERSION, createdAt: new Date().toISOString(), profile: { ...item.profile }, duration, events, processed, detected, ambiguous, demo: false };
+    const trajectoryEvents = [...tracker.finish().map(e => ({ ...e, context: 'unknown', source: 'trajectory' })), ...preaim.map(e => ({ ...e, source: 'preaim' }))]
+      .sort((a, b) => a.start - b.start).map((e, i) => ({ ...e, id: `event-${i + 1}` }));
+    const playerName = String(item.playerName || item.analysisSettings?.playerName || '').trim();
+    let hud = null;
+    try {
+      hud = await detectHudEvents(video, {
+        duration, playerName, signal,
+        onProgress: progress => onProgress?.({
+          fraction: 0.55 + Math.max(0, Math.min(1, progress.fraction || 0)) * 0.45,
+          processed, total, candidates: trajectoryEvents.length + (progress.candidates || 0),
+          phase: progress.phase, hud: progress
+        })
+      });
+      if (hud.events?.length) hud.events = associateHudEvents(hud.events, trajectoryEvents);
+    } catch (error) {
+      if (error?.name === 'AbortError') throw error;
+      hud = { status: 'error', events: [], identity: { name: playerName }, message: `HUD 自动识别未完成：${error.message}`, scans: 0, ocrRuns: 0, candidates: 0 };
+    }
+    const events = [...trajectoryEvents, ...(hud?.events || [])].sort((a, b) => a.start - b.start);
+    return { id: item.id, version: ANALYSIS_VERSION, createdAt: new Date().toISOString(), profile: { ...item.profile }, duration, events, hud, processed, detected, ambiguous, demo: false };
   } finally { video.removeAttribute('src'); video.load(); }
 }
 

@@ -1,12 +1,15 @@
 import { DEFAULT_PROFILE, HABIT_LABELS, SCENE_LABELS, validateProfile, recommend, MIN_REVIEWED } from './analysis.js';
 import { storage, saveProfile, saveReport } from './storage.js';
 import { beginCapture, analyzeVideo, inspectVideo, makeDemo } from './media.js';
+import { detectHudEvents, associateHudEvents } from './events.js';
 
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, s => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[s]));
 const time = seconds => `${String(Math.floor((seconds || 0) / 60)).padStart(2, '0')}:${String(Math.floor((seconds || 0) % 60)).padStart(2, '0')}`;
 const clipTime = seconds => `${time(seconds)}.${String(Math.floor((seconds % 1) * 100)).padStart(2, '0')}`;
 const kindLabel = { overshoot: '越过目标', undershoot: '移动不足', settled: '接近目标', preaim: '视角运动观察', observation: '手动标记 · 待量化' };
+const eventKindLabel = event => event?.source === 'hud-ocr' ? 'HUD 自动识别 · 待确认' : kindLabel[event?.kind] || kindLabel.observation;
+const hudCandidateCount = report => (report?.events || []).filter(event => event.source === 'hud-ocr').length;
 const sceneGuidance = {
   unknown: '先回看接敌的完整过程，再确认片段属于哪一种场景。',
   kill: '重点看击杀前的首次落点和后续修正。击杀成功本身不说明灵敏度合适。',
@@ -75,7 +78,10 @@ const paths = {
 const icon = name => `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.target}</svg>`;
 const initialProfile = loadInitialProfile();
 let profile = initialProfile.profile;
-const state = { page: 'workspace', profile, profileConfirmed: initialProfile.confirmed, recordings: [], capture: null, capturePhase: null, captureAbort: null, reselectCapture: false, busy: false, report: null, item: null, mediaUrl: null, eventIndex: 0, filter: 'all', progress: null, abort: null, notice: null, playbackRate: 1, clipEnd: null, homePreviewUrl: null, thumbnailObserver: null, thumbnailQueue: [], thumbnailActive: 0, thumbnailGeneration: 0 };
+function loadPlayerName() { try { return String(localStorage.getItem('sight-player-name') || '').slice(0, 32); } catch { return ''; } }
+function savePlayerName(value) { state.playerName = String(value || '').slice(0, 32); try { localStorage.setItem('sight-player-name', state.playerName); } catch { /* name still works for this session */ } }
+const initialPlayerName = loadPlayerName();
+const state = { page: 'workspace', profile, profileConfirmed: initialProfile.confirmed, playerName: initialPlayerName, recordings: [], capture: null, capturePhase: null, captureAbort: null, reselectCapture: false, busy: false, report: null, item: null, mediaUrl: null, eventIndex: 0, filter: 'all', progress: null, abort: null, notice: null, playbackRate: 1, clipEnd: null, homePreviewUrl: null, thumbnailObserver: null, thumbnailQueue: [], thumbnailActive: 0, thumbnailGeneration: 0 };
 let elapsedTimer;
 
 function notify(message, error = false) {
@@ -151,6 +157,10 @@ function workspaceView() {
   return returning ? returningHomeView(latest) : firstUseView();
 }
 
+function playerNameField() {
+  return '<label class="hud-name-field" for="player-name"><span>录像中的玩家名 <small>用于本地 HUD 识别，可留空</small></span><input id="player-name" name="playerName" type="text" maxlength="32" autocomplete="off" spellcheck="false" value="' + esc(state.playerName) + '" placeholder="例如 PlayerOne"></label>';
+}
+
 function profileSummaryCard() {
   const p = state.profile;
   const stateClass = state.profileConfirmed ? 'confirmed' : 'unconfirmed';
@@ -166,12 +176,13 @@ function firstUseView() {
   return '<section class="page-head first-head"><div><h1>录制与复盘</h1><p>选择一段对局，回看你的瞄准过程。</p></div></section>' +
     '<div class="home-grid home-first"><section class="capture-surface" aria-label="开始录制"><div class="capture-copy"><h2>录制一局</h2><p>选择一个完整的游戏窗口。结束后分析候选片段；画面和报告只保存在本机。</p></div>' +
     '<div class="primary-actions"><button class="button primary large" id="start-recording">' + icon('record') + '开始录制</button><button class="button secondary large" id="import-video">' + icon('upload') + '导入录像</button></div>' +
+    playerNameField() +
     '<div class="surface-foot"><button class="text-button" id="load-demo">没有录像？先看合成示例 ' + icon('arrow') + '</button><span>不录制音频 · 支持 MP4 / WebM · 单文件最多 2 GB</span></div></section>' +
     profileSummaryCard() + '</div>';
 }
 
 function nextSessionCard() {
-  return '<section class="next-session" aria-label="录制新对局"><div><h2>录下一局</h2><p>手动选择窗口，结束后分析。录像和档案只保存在本机。</p></div>' +
+  return '<section class="next-session" aria-label="录制新对局"><div><h2>录下一局</h2><p>手动选择窗口，结束后分析。录像和档案只保存在本机。</p>' + playerNameField() + '</div>' +
     '<div class="next-actions"><button class="button secondary" id="start-recording">' + icon('record') + '开始录制</button><button class="button secondary" id="import-video">' + icon('upload') + '导入录像</button></div></section>';
 }
 
@@ -336,6 +347,27 @@ function progressView() {
   return '<section class="progress-page"><span class="progress-symbol">' + icon('target') + '</span><h1>' + (p?.label || '正在整理瞄准片段') + '</h1><p>全程在本机处理。完整对局可能需要较长时间。</p><progress max="1" value="' + (p?.fraction || 0) + '" aria-label="分析进度"></progress><div class="progress-meta"><span>' + Math.round((p?.fraction || 0) * 100) + '%</span><span>' + (p?.processed ? '已检查 ' + p.processed.toLocaleString() + ' 帧 · ' + (p.candidates || 0) + ' 个候选片段' : '正在准备录像…') + '</span></div>' + (state.abort ? '<button class="button secondary" id="cancel-analysis">取消分析，保留录像</button>' : '<span class="muted">正在保存，请稍候。</span>') + '<p class="progress-note">' + icon('shield') + '分析结果只在赛后展示；录像不会上传。</p></section>';
 }
 
+function hudStatusText(report) {
+  const hud = report?.hud;
+  if (!hud) return '旧报告未包含 HUD 信息';
+  if (hud.status === 'name-required') return '未运行 · 缺少玩家名';
+  if (hud.status === 'error') return '识别失败 · 可重试';
+  if (hud.status === 'zero') return '未识别到本人行';
+  if (hud.status === 'complete') return hudCandidateCount(report) + ' 个本人 HUD 候选';
+  return hud.status || '未运行';
+}
+
+function hudSetupMarkup(report) {
+  if (report.demo) return '';
+  const hud = report.hud;
+  const identity = hud?.identity?.name || state.item?.playerName || '';
+  const open = !hud || hud.status === 'name-required' || hud.status === 'error';
+  return '<details class="hud-setup" id="hud-setup" ' + (open ? 'open' : '') + '><summary>HUD 自动识别 <span class="hud-status">' + esc(hudStatusText(report)) + '</span></summary>' +
+    '<form id="hud-form"><label>录像中的玩家名<input id="hud-player-name" name="playerName" type="text" maxlength="32" autocomplete="off" spellcheck="false" value="' + esc(identity) + '" placeholder="例如 PlayerOne"></label><button class="button secondary" type="submit" id="hud-rescan">识别本人事件</button></form>' +
+    '<p class="field-hint">只用于这段录像的 HUD 候选；不会改档案、旧报告或录像。自动候选仍需回放确认，确认后也不会进入量化样本。</p>' +
+    (hud?.message ? '<p class="hud-message">' + esc(hud.message) + '</p>' : '') + '</details>';
+}
+
 function reportView() {
   const r = state.report;
   if (!r) return '<div class="large-empty">请先从对局记录中打开一份报告。</div>';
@@ -343,7 +375,7 @@ function reportView() {
   return '<section class="report-page"><header class="page-head report-head"><div><h1>' + (r.demo ? '复盘示例' : '赛后复盘') + '</h1><p class="report-meta">' + (r.demo ? '<span class="demo-pill">合成示例 · 非真实对局</span> 程序生成的轨迹，只用于体验回放。' : esc(state.item?.title || '游戏录像') + ' · ' + time(r.duration) + ' · ' + r.profile.dpi + ' DPI · ' + r.profile.sensitivity + ' 灵敏度') + '</p></div><button class="button secondary" id="export-report">' + icon('download') + '导出报告</button></header>' +
     '<div class="report-layout"><section class="video-workspace" aria-label="录像与片段操作"><div id="evidence-stage" class="evidence-stage"></div><div class="timeline-panel"><div id="clip-timeline"></div><div class="seek-row"><label class="sr-only" for="replay-seek">录像播放位置</label><input id="replay-seek" type="range" min="0" max="' + r.duration + '" step="0.05" value="0" ' + (r.demo ? 'disabled' : '') + '><output id="replay-time">00:00 / ' + time(r.duration) + '</output></div></div><div id="playback-controls" class="playback-controls"></div></section>' +
     '<aside class="review-panel" aria-label="片段选择与确认"><div id="review-summary" class="review-summary" aria-label="复盘概览"></div><details id="clips-panel" class="clips-panel" ' + (innerWidth >= 1100 ? 'open' : '') + '><summary>片段 <span id="clip-total" class="count-badge">' + r.events.length + '</span><span class="collapse-hint">展开 / 收起</span></summary><label class="filter-label" for="event-filter">筛选<select id="event-filter"><option value="all">全部片段</option><option value="pending">待确认</option><option value="reviewed">已确认</option><option value="excluded">已排除</option>' + Object.entries(SCENE_LABELS).filter(([key]) => key !== 'unknown').map(([value, label]) => '<option value="' + value + '">' + label + '</option>').join('') + '</select></label><div id="events-list" class="events-list"></div></details><div id="evidence-controls" class="evidence-controls"></div></aside></div>' +
-    '<div class="report-details"><details class="analysis-details"><summary>轨迹与判断依据</summary><div class="error-chart"><div><strong id="chart-title">目标相对准星的位置</strong><span id="chart-unit">沿初始瞄准方向 · 屏幕宽度 %</span></div><svg id="error-plot" viewBox="0 0 640 130" role="img" aria-label="当前片段的位置曲线"></svg><p id="chart-description"></p></div></details><details class="advice-details" id="advice-details"><summary>建议依据与下一次复测</summary><div id="recommendation-detail"></div></details></div></section>';
+    '<div class="report-details">' + hudSetupMarkup(r) + '<details class="analysis-details"><summary>轨迹与判断依据</summary><div class="error-chart"><div><strong id="chart-title">目标相对准星的位置</strong><span id="chart-unit">沿初始瞄准方向 · 屏幕宽度 %</span></div><svg id="error-plot" viewBox="0 0 640 130" role="img" aria-label="当前片段的位置曲线"></svg><p id="chart-description"></p></div></details><details class="advice-details" id="advice-details"><summary>建议依据与下一次复测</summary><div id="recommendation-detail"></div></details></div></section>';
 }
 
 function reportSummary() {
@@ -362,7 +394,7 @@ function eventRows() {
   const events = filteredEvents();
   return events.length ? events.map(e => '<button class="event-row ' + (state.eventIndex === e.index ? 'selected' : '') + '" data-event="' + e.index + '" aria-pressed="' + (state.eventIndex === e.index) + '">' +
     '<span class="event-main"><strong>' + clipTime(e.start) + '</strong><span class="review-state">' + (!e.included ? '已排除' : e.reviewed ? '已确认' : '待确认') + '</span></span>' +
-    '<span class="scene-label">' + SCENE_LABELS[e.context || 'unknown'] + '</span><span class="kind-label ' + e.kind + '">' + kindLabel[e.kind] + '</span></button>').join('') :
+    '<span class="scene-label">' + SCENE_LABELS[e.context || 'unknown'] + '</span><span class="kind-label ' + e.kind + (e.source === 'hud-ocr' ? ' hud-source' : '') + '">' + eventKindLabel(e) + (e.source === 'hud-ocr' && e.ocrConfidence ? ' · ' + Math.round(e.ocrConfidence) + '%' : '') + '</span></button>').join('') :
     '<div class="list-empty">' + (state.report.events.length ? '没有符合筛选条件的片段。' : '没有找到清晰的候选片段。播放完整录像，确认后可手动标记；录像已保留。') + '</div>';
 }
 
@@ -399,6 +431,7 @@ function refreshReport({ seek = false, focus = null } = {}) {
     const select = () => {
       state.eventIndex = Number(button.dataset.event ?? button.dataset.clip);
       state.clipEnd = null;
+      if (state.report.events[state.eventIndex]?.source === 'hud-ocr') state.playbackRate = 0.5;
       refreshReport({ seek: true, focus: button.hasAttribute('data-event') ? '[data-event="' + state.eventIndex + '"]' : '[data-clip="' + state.eventIndex + '"]' });
     };
     button.onclick = select;
@@ -421,11 +454,18 @@ function helpView() {
   return '<section class="help-page"><header class="page-head"><div><h1>使用帮助</h1><p>录制、复盘、本地存储和当前版本的实际限制。</p></div></header><div class="help-grid">' +
     '<section class="help-block"><h2>录像在哪里，怎样停止？</h2><p>桌面版录像和报告只保存在本机用户数据目录；关闭窗口后仍可从托盘结束录制。浏览器预览版保存在当前浏览器，清理网站数据会移除。</p><p>开始录制需要手动选择一个正在显示游戏画面的完整窗口，必须在游戏结束后点击“结束并分析”。</p></section>' +
     '<section class="help-block"><h2>没有收到窗口画面怎么办？</h2><p>等待阶段可以取消或重新选择窗口；8 秒没有收到可解码画面就不会开始录制，也不会保存空录像。请确认窗口正在显示动态画面，并检查系统录屏权限。</p><p>如果录像实际为空，记录页会显示“无画面”并拒绝分析；原文件和元数据仍保留在本机。</p></section>' +
-    '<section class="help-block"><h2>为什么片段还要手动确认？</h2><p>颜色轮廓和背景位移只是候选线索，不是训练好的敌人识别。技能特效、后坐力、观战、敌人移动和错误轮廓都可能误检，所以需要回放确认场景与意图。</p><p>合成示例、手动标记、预瞄、未知场景和已排除片段都不会成为量化样本。</p></section>' +
+    '<section class="help-block"><h2>为什么片段还要手动确认？</h2><p>颜色轮廓、背景位移和 HUD 击杀信息都只是候选线索，不是训练好的敌人识别。HUD 识别只按玩家名在击杀信息左右两侧的位置给出本人击杀/死亡候选，会拒绝队友、助攻、模糊名字和低置信度行；仍可能受 HUD 布局、皮肤、语言和遮挡影响，需要回放确认。</p><p>合成示例、手动标记、HUD 自动候选、预瞄、未知场景和已排除片段都不会成为量化样本。</p></section>' +
     '<section class="help-block"><h2>建议值怎么来的？</h2><p>至少 ' + MIN_REVIEWED + ' 个已确认且未排除的击杀/被击杀/对枪片段，并且同一调整方向占比达到 65%、Wilson 下界大于 50%，才提出 ±3% 的试验值；否则保持当前值。</p><p>这些阈值是原型的工程规则，不是已验证的最佳灵敏度或成功概率。片段之间也不一定相互独立。</p></section>' +
-    '<section class="help-block"><h2>没有候选片段怎么办？</h2><p>可以播放完整录像，在想到的位置手动标记击杀、被击杀、对枪或预瞄事件。手动标记只用于复盘，不进入灵敏度建议的有效样本；也可以导入另一段录像。</p><p>取消分析不会删除录像，可在对局记录中重新打开。</p></section>' +
-    '<section class="help-block"><h2>当前版本的限制</h2><p>尚未验证 Windows 游戏窗口/全屏捕获、Vanguard、长时间录制和游戏帧率影响，也未获得 Riot 审核。自动击杀/死亡识别尚未实现，灵敏度建议仍需玩家用实际复测确认。</p></section>' +
+    '<section class="help-block"><h2>没有候选片段怎么办？</h2><p>可以播放完整录像，在想到的位置手动标记击杀、被击杀、对枪或预瞄事件。手动标记只用于复盘，不进入灵敏度建议的有效样本；也可以导入另一段录像。</p><p>如果 HUD 没有识别到本人行，打开报告底部的「HUD 自动识别」补填录像中的玩家名后重新识别；原录像和原报告会保留。取消分析也不会删除录像，可在对局记录中重新打开。</p></section>' +
+    '<section class="help-block"><h2>当前版本的限制</h2><p>尚未验证 Windows 游戏窗口/全屏捕获、Vanguard、长时间录制和游戏帧率影响，也未获得 Riot 审核。HUD 击杀/死亡识别是本机实验性 OCR，只使用合成录像验证工程管线，尚未评估真实对局召回率、误检率或不同分辨率/语言下的稳定性；灵敏度建议仍需玩家用实际复测确认。</p></section>' +
     '</div></section>';
+}
+
+function hudEvidenceMarkup(event) {
+  const evidence = event?.evidence || {};
+  const confidence = Math.round((event?.ocrConfidence || event?.confidence * 100 || 0));
+  const related = evidence.relatedEventId ? ' · 邻近轨迹仅供导航，不构成证据' : '';
+  return '<div class="hud-evidence" role="note"><strong>HUD 识别依据</strong><span>' + esc(evidence.rowText || '未保存行文本') + '</span><span>左：' + esc(evidence.leftText || '—') + ' · 右：' + esc(evidence.rightText || '—') + ' · 置信度 ' + confidence + '%' + related + '</span><span>自动候选只作为观察线索；确认后仍没有量化轨迹。</span></div>';
 }
 
 function renderEvidence({ seek = false } = {}) {
@@ -445,11 +485,12 @@ function renderEvidence({ seek = false } = {}) {
     if (player.readyState >= 1) position(); else player.onloadedmetadata = position;
   } else stage.innerHTML = '<p>录像未加载。请从对局记录重新打开。</p>';
 
-  controls.innerHTML = e ? '<div class="evidence-caption"><strong>' + clipTime(e.start) + ' — ' + clipTime(e.end) + '</strong><span class="kind-label ' + e.kind + '">' + kindLabel[e.kind] + '</span></div><div class="review-controls"><label>场景<select id="review-context">' +
+  controls.innerHTML = e ? '<div class="evidence-caption"><strong>' + clipTime(e.start) + ' — ' + clipTime(e.end) + '</strong><span class="kind-label ' + e.kind + (e.source === 'hud-ocr' ? ' hud-source' : '') + '">' + eventKindLabel(e) + '</span></div>' + '<div class="review-controls"><label>场景<select id="review-context">' +
     Object.entries(SCENE_LABELS).map(([value, label]) => '<option value="' + value + '" ' + (value === (e.context || 'unknown') ? 'selected' : '') + '>' + label + '</option>').join('') + '</select></label>' +
     '<label>瞄准分类<select id="review-kind" ' + (e.motion || e.kind === 'observation' ? 'disabled' : '') + '>' + Object.entries(kindLabel).map(([value, label]) => '<option value="' + value + '" ' + (e.kind === value ? 'selected' : '') + '>' + label + '</option>').join('') + '</select></label>' +
-    '<button class="button secondary" id="exclude-event">' + (e.included ? '排除此片段' : '恢复此片段') + '</button><button class="button primary" id="confirm-event" ' + (!e.included ? 'disabled' : '') + '>' + icon('check') + (e.reviewed ? '已确认 · 更新' : '确认有效') + '</button></div><p class="review-hint" id="scene-guidance-text">' + sceneGuidance[e.context || 'unknown'] + '</p>' :
+    '<button class="button secondary" id="exclude-event">' + (e.included ? '排除此片段' : '恢复此片段') + '</button><button class="button primary" id="confirm-event" ' + (!e.included ? 'disabled' : '') + '>' + icon('check') + (e.reviewed ? '已确认 · 更新' : e.source === 'hud-ocr' ? '确认 HUD 候选' : '确认有效') + '</button></div><p class="review-hint" id="scene-guidance-text">' + sceneGuidance[e.context || 'unknown'] + '</p>' :
     '<div class="zero-recovery"><p><strong>没有候选片段。</strong>录像已保留。播放完整录像，确认位置后手动标记关键事件，或导入另一段录像。</p><div class="zero-actions"><button class="button primary" id="zero-mark">' + icon('target') + '标记关键事件</button><button class="button secondary" data-import-video>' + icon('upload') + '导入另一段录像</button><button class="text-button" data-nav="history">返回对局记录 ' + icon('arrow') + '</button></div></div>';
+  if (e?.source === 'hud-ocr') controls.insertAdjacentHTML('beforeend', hudEvidenceMarkup(e));
   attachReplayTools(e);
   $('#zero-mark')?.addEventListener('click', () => {
     const form = $('#marker-form');
@@ -457,9 +498,9 @@ function renderEvidence({ seek = false } = {}) {
     form?.querySelector('select')?.focus({ preventScroll: true });
   });
   const plot = $('#error-plot');
-  $('#chart-title').textContent = e?.motion ? '背景位移估计 · 水平方向' : e?.kind === 'observation' ? '该片段尚无量化轨迹' : '目标相对准星的位置';
-  $('#chart-unit').textContent = e?.motion ? '屏幕宽度 % · 视角运动的近似' : e?.kind === 'observation' ? '玩家手动标记' : '沿初始瞄准方向 · 屏幕宽度 %';
-  $('#chart-description').textContent = e?.motion ? '观察到 ' + e.motion.reversals + ' 次方向反转。角色移动与后坐力也会影响画面；这不是手部平滑度，也不直接用于调整灵敏度。' :
+  $('#chart-title').textContent = e?.source === 'hud-ocr' ? 'HUD 事件 · 尚无量化轨迹' : e?.motion ? '背景位移估计 · 水平方向' : e?.kind === 'observation' ? '该片段尚无量化轨迹' : '目标相对准星的位置';
+  $('#chart-unit').textContent = e?.source === 'hud-ocr' ? 'HUD 观察 · 不是瞄准证据' : e?.motion ? '屏幕宽度 % · 视角运动的近似' : e?.kind === 'observation' ? '玩家手动标记' : '沿初始瞄准方向 · 屏幕宽度 %';
+  $('#chart-description').textContent = e?.source === 'hud-ocr' ? '这是 HUD 击杀信息的自动候选，没有轨迹、命中结果或对枪证据。请回放确认时间、参与者和场景；确认也不会增加量化样本。' : e?.motion ? '观察到 ' + e.motion.reversals + ' 次方向反转。角色移动与后坐力也会影响画面；这不是手部平滑度，也不直接用于调整灵敏度。' :
     e?.kind === 'observation' ? '没有可靠的轨迹测量，手动片段不计入灵敏度建议的有效样本。' : '越过零线只是候选线索。确认时请排除压枪、观战、切换目标、明显敌人移动与错误轮廓。';
   const errors = e?.error || [], max = Math.max(5, ...errors.map(Math.abs));
   plot.innerHTML = errors.length ? '<line class="plot-axis" x1="34" y1="66" x2="625" y2="66" stroke-dasharray="3 5"/><text class="plot-label" x="4" y="70">0</text><polyline class="plot-trace" points="' + errors.map((v, i) => (34 + i / Math.max(1, errors.length - 1) * 590) + ',' + (66 - v / max * 49)).join(' ') + '"/>' : '';
@@ -470,7 +511,7 @@ function renderEvidence({ seek = false } = {}) {
     if (context === 'unknown') { notify('请先确认这是击杀、被击杀、对枪未击杀还是预瞄场景。', true); $('#review-context').focus(); return; }
     e.kind = e.kind === 'observation' ? 'observation' : e.motion ? 'preaim' : $('#review-kind').value; e.context = context; e.reviewed = true;
     const saved = persistReport(); refreshReport({ focus: '#confirm-event' });
-    if (saved) notify(r.demo ? '示例片段已确认，不计入真实量化样本。' : '片段已确认，报告已保存。');
+    if (saved) notify(e.source === 'hud-ocr' ? 'HUD 候选已确认；它没有量化轨迹，仍不会进入灵敏度建议的样本。' : r.demo ? '示例片段已确认，不计入真实量化样本。' : '片段已确认，报告已保存。');
   };
   $('#exclude-event').onclick = () => {
     e.included = !e.included; e.reviewed = false;
@@ -530,6 +571,7 @@ function bind() {
   $('#cancel-capture-banner')?.addEventListener('click', cancelCapture);
   $('#reselect-capture')?.addEventListener('click', reselectCapture);
   $('#reselect-capture-banner')?.addEventListener('click', reselectCapture);
+  $('#player-name')?.addEventListener('input', event => savePlayerName(event.target.value));
   $('#import-video')?.addEventListener('click', () => $('#video-file').click());
   $('#video-file')?.addEventListener('change', importVideo);
   $('#load-demo')?.addEventListener('click', () => { if (state.capture || state.capturePhase) return; releaseMedia(); state.report = makeDemo(state.profile); state.eventIndex = 0; state.filter = 'all'; navigate('report'); });
@@ -547,6 +589,7 @@ function bind() {
     } catch (error) { notify(error.message, true); }
   });
   $('#cancel-analysis')?.addEventListener('click', () => state.abort?.abort());
+  $('#hud-form')?.addEventListener('submit', rescanHud);
   $('#export-report')?.addEventListener('click', exportReport);
   $('#event-filter')?.addEventListener('change', event => { state.filter = event.target.value; refreshReport(); });
   document.querySelectorAll('[data-recording]').forEach(button => button.onclick = () => openRecording(button.dataset.recording));
@@ -609,7 +652,7 @@ async function captureSelected() {
     }, async (error, terminal) => {
       if (terminal) { clearInterval(elapsedTimer); state.capture = null; state.capturePhase = null; await setBusy(false); render(); }
       notify(error.message, true);
-    }, { signal: state.captureAbort.signal, onWaiting: () => { state.capturePhase = 'waiting'; render(); } });
+    }, { signal: state.captureAbort.signal, playerName: state.playerName, onWaiting: () => { state.capturePhase = 'waiting'; render(); } });
     state.capturePhase = null; state.captureAbort = null;
     await window.doctorgame?.setBusy(true); state.page = 'workspace'; state.notice = null; render(); elapsedTimer = setInterval(tick, 1000);
     notify('已开始录制。打完后点击“结束并分析”。');
@@ -633,7 +676,7 @@ async function importVideo(event) {
   let url = URL.createObjectURL(file), id;
   try {
     const { video, duration } = await inspectVideo(url); video.removeAttribute('src'); video.load();
-    id = await storage.begin({ profile: { ...state.profile }, title: file.name, mimeType: file.type || 'video/webm' });
+    id = await storage.begin({ profile: { ...state.profile }, playerName: state.playerName.trim(), title: file.name, mimeType: file.type || 'video/webm' });
     for (let pos = 0; pos < file.size; pos += 8 * 1024 ** 2) { await storage.append(id, file.slice(pos, pos + 8 * 1024 ** 2)); }
     const item = await storage.finish(id, { duration, bytes: file.size });
     releaseMedia(); state.mediaUrl = url; url = null; state.item = item; await refreshRecordings(); await runAnalysis(item);
@@ -659,15 +702,57 @@ async function openRecording(id) {
 
 async function runAnalysis(item) {
   if (!item || !usableRecording(item)) { notify('这段录像的实际文件为空（0 字节），不能分析。原文件与元数据仍保留在本机；请重新录制或导入其他录像。', true); render(); return; }
-  await setBusy(true); state.abort = new AbortController(); state.progress = { fraction: 0 }; state.page = 'report'; render();
+  await setBusy(true); state.abort = new AbortController(); state.progress = { fraction: 0, label: '正在整理瞄准片段' }; state.page = 'report'; render();
   try {
-    state.report = await analyzeVideo(state.mediaUrl, item, progress => { state.progress = progress; const bar = $('progress'); if (bar) bar.value = progress.fraction; const detail = $('.progress-meta'); if (detail) detail.innerHTML = `<span>${Math.round(progress.fraction * 100)}%</span><span>已检查 ${progress.processed.toLocaleString()} 帧 · ${progress.candidates} 个候选片段</span>`; }, state.abort.signal);
+    state.report = await analyzeVideo(state.mediaUrl, item, progress => {
+      state.progress = progress;
+      const bar = $('progress'); if (bar) bar.value = progress.fraction;
+      const heading = $('.progress-page h1'); if (progress.phase && heading) heading.textContent = progress.phase;
+      const detail = $('.progress-meta'); if (detail) detail.innerHTML = `<span>${Math.round(progress.fraction * 100)}%</span><span>已检查 ${progress.processed.toLocaleString()} 帧 · ${progress.candidates} 个候选${progress.phase ? ' · ' + esc(progress.phase) : ''}</span>`;
+    }, state.abort.signal);
     state.eventIndex = 0; state.filter = 'all'; state.clipEnd = null; persistReport();
-    state.notice = { message: state.report.events.length ? '分析完成。请先回放确认候选片段。' : '分析完成，没有找到候选片段。录像已保留；可以播放完整录像并手动标记关键事件，或导入另一段录像。', error: false };
+    const hudNote = state.report.hud?.status === 'name-required' ? ' 未填写玩家名，HUD 事件未识别；可在报告底部补填后重新识别。' :
+      state.report.hud?.status === 'error' ? ' HUD 自动识别未完成，录像和轨迹报告已保留，可稍后重试或手动标记。' :
+      state.report.hud?.status === 'zero' ? ' HUD 中没有找到可靠的本人行，可手动标记或检查玩家名。' :
+      state.report.hud?.status === 'complete' ? ` HUD 识别到 ${state.report.hud.candidates || hudCandidateCount(state.report)} 个本人候选，需回放确认；它们不计入量化样本。` : '';
+    state.notice = { message: state.report.events.length ? '分析完成。请先回放确认候选片段。' + hudNote : '分析完成，没有找到候选片段。录像已保留；可以播放完整录像并手动标记关键事件，或导入另一段录像。' + hudNote, error: false };
   } catch (error) {
     state.page = 'history'; state.notice = { message: error.name === 'AbortError' ? '分析已取消，录像仍保留在对局记录中。' : `分析未完成：${error.message} 录像已保留，可重新打开重试。`, error: error.name !== 'AbortError' };
   } finally { await setBusy(false); state.abort = null; render(); }
 }
+async function rescanHud(event) {
+  event?.preventDefault();
+  if (state.busy || state.capture || state.capturePhase) return;
+  const report = state.report;
+  if (!report || report.demo) { notify('示例报告不运行 HUD 识别；请导入自己的录像。', true); return; }
+  const name = String($('#hud-player-name')?.value || '').trim();
+  if (!name) { notify('请填写录像中显示的玩家名。', true); $('#hud-player-name')?.focus(); return; }
+  if (!state.mediaUrl) { notify('录像尚未加载，无法重新识别；请从对局记录重新打开。', true); return; }
+  await setBusy(true); state.abort = new AbortController(); state.progress = { fraction: 0, label: '正在识别 HUD 击杀信息' }; render();
+  try {
+    const result = await detectHudEvents(state.mediaUrl, {
+      duration: report.duration, playerName: name, signal: state.abort.signal,
+      onProgress: progress => {
+        state.progress = { ...progress, label: progress.phase || '正在扫描 HUD' };
+        const bar = $('progress'); if (bar) bar.value = progress.fraction;
+        const heading = $('.progress-page h1'); if (heading) heading.textContent = state.progress.label;
+        const detail = $('.progress-meta'); if (detail) detail.innerHTML = `<span>${Math.round((progress.fraction || 0) * 100)}%</span><span>HUD 扫描 ${progress.scans || 0} 次 · ${progress.candidates || 0} 个候选</span>`;
+      }
+    });
+    const trajectory = report.events.filter(event => event.source !== 'hud-ocr');
+    report.hud = result;
+    report.events = [...trajectory, ...associateHudEvents(result.events || [], trajectory)].sort((a, b) => a.start - b.start);
+    state.eventIndex = report.events.findIndex(event => event.source === 'hud-ocr');
+    if (state.eventIndex < 0) state.eventIndex = 0;
+    state.filter = 'all'; state.clipEnd = null; persistReport();
+    state.notice = { message: result.message || 'HUD 识别完成。', error: result.status === 'error' };
+  } catch (error) {
+    state.notice = { message: error.name === 'AbortError' ? 'HUD 识别已取消；原录像和原报告仍保留。' : `HUD 识别未完成：${error.message} 原录像和原报告仍保留。`, error: error.name !== 'AbortError' };
+  } finally {
+    await setBusy(false); state.abort = null; render();
+  }
+}
+
 function exportReport() {
   const report = { ...state.report, recommendation: recommend(state.report.events, state.report.profile, { demo: state.report.demo }) };
   const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }));

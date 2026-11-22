@@ -17,7 +17,11 @@ if (!app.commandLine.hasSwitch('user-data-dir') && !existsSync(path.join(app.get
   }
 }
 
-protocol.registerSchemesAsPrivileged([{ scheme: 'doctorgame-video', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, corsEnabled: true } }]);
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'doctorgame-video', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, corsEnabled: true } },
+  // Read-only local OCR assets; no renderer Node access and no arbitrary path.
+  { scheme: 'doctorgame-asset', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, corsEnabled: true } }
+]);
 let win, tray, recordingDir, selectedSource, busy = false, quitting = false;
 const active = new Map();
 const idPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -62,6 +66,19 @@ else {
           status: 206,
           headers: { 'Content-Type': contentType, 'Accept-Ranges': 'bytes', 'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': String(end - start + 1), 'Access-Control-Allow-Origin': '*' }
         });
+      } catch { return new Response(null, { status: 404 }); }
+    });
+    protocol.handle('doctorgame-asset', async request => {
+      try {
+        const url = new URL(request.url);
+        if (url.hostname !== 'ocr') return new Response(null, { status: 403 });
+        const assetRoot = path.resolve(__dirname, '..', 'assets', 'ocr');
+        const relative = decodeURIComponent(url.pathname).replace(/^\/+/, '');
+        const file = path.resolve(assetRoot, relative);
+        if (file !== assetRoot && !file.startsWith(assetRoot + path.sep)) return new Response(null, { status: 403 });
+        const body = await fs.readFile(file);
+        const type = file.endsWith('.js') ? 'text/javascript' : file.endsWith('.json') ? 'application/json' : file.endsWith('.gz') ? 'application/gzip' : 'application/octet-stream';
+        return new Response(body, { headers: { 'Content-Type': type, 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' } });
       } catch { return new Response(null, { status: 404 }); }
     });
     win = new BrowserWindow({
