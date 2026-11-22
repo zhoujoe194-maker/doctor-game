@@ -206,7 +206,7 @@
 | --- | --- |
 | `npm test` | 11 pass |
 | `npm run test:ui` | **18 pass**（原有 5 项 + 6 项 `full-ui.spec.js` + 既有 `player-experience` 7 项） |
-| UI 自测 + AxeBuilder | 15 个状态（首访、复盘 1440/1280/760、回访 1440/1280、记录、档案、帮助、录制、零候选、回访带录像、选窗弹窗、390px 回访、坏报告首页）**0 axe violations**；截图 `artifacts/full-ui/dsh/01-15-*.png` |
+| UI 自测 + AxeBuilder | 15 个状态（首访、复盘 1440/1280/760、回访 1440/1280、记录、档案、帮助、录制、零候选、回访带录像、选窗弹窗、390px 回访、坏报告首页）**0 axe violations**；截图 `artifacts/full-ui/dsh/01-15-*.png`，原始结果 `artifacts/full-ui/dsh/axe-report.json`（15 状态） |
 | 首屏边界 | 1440×900：播放速度 bottom 783.1、确认/排除 bottom 748.7；1280×720：播放速度 bottom 653.1、确认/排除 bottom 688.7；均在视口内 |
 | 实际字体 | 导航/按钮/输入/选择器 14px；字段 label 13px；场景/状态/样本/筛选 12px；建议原因 13px；帮助正文 14px |
 | 响应式 | 760/390/320 宽度无横向溢出；720×450 作为 200% 缩放的布局近似也无横向溢出 |
