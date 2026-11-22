@@ -104,6 +104,8 @@ test('full video import produces real local HUD kill/death candidates with revie
   await expect(page.getByRole('heading', { name: '赛后复盘', exact: true })).toBeVisible({ timeout: 120000 });
   const afterIdentityChange = await report(page);
   const retainedConfirmed = afterIdentityChange.events.find(event => event.source === 'hud-ocr' && event.retained);
+  const afterIdentityIds = afterIdentityChange.events.filter(event => event.source === 'hud-ocr').map(event => event.id);
+  expect(new Set(afterIdentityIds).size).toBe(afterIdentityIds.length);
   expect(retainedConfirmed).toBeTruthy();
   expect(retainedConfirmed.reviewed).toBe(true);
   expect(retainedConfirmed.evidence.previousIdentity).toBe('PlayerOne');
@@ -152,6 +154,7 @@ test('HUD model failure keeps the recording and report usable', async ({ page })
   await importFile(page, file, { playerName: 'PlayerOne' });
   const saved = await report(page);
   expect(saved.hud.status).toBe('error');
+  expect(saved.hud.workerTerminated).toBe(false);
   expect(await page.locator('.hud-setup')).toContainText('识别失败 · 可重试');
   await expect(page.locator('.hud-message')).toContainText('击杀与死亡自动识别未完成');
   await page.getByRole('button', { name: '对局记录', exact: true }).click();

@@ -165,3 +165,29 @@ test('a changed identity retains the old confirmed candidate instead of deleting
   assert.equal(retained.evidence.previousIdentity, 'Alex');
   assert.equal(merged.hud.retainedConfirmed, 1);
 });
+
+
+test('rescan identity changes never duplicate IDs and can restore the original confirmation', () => {
+  const oldAlex = { id: 'hud-1', source: 'hud-ocr', kind: 'observation', context: 'kill', reviewed: true, included: false, rowKey: 'left|alexenemy', firstSeen: 2, start: 0.5, end: 3.5, evidence: { identity: 'Alex' } };
+  const freshBob = { id: 'hud-1', source: 'hud-ocr', kind: 'observation', context: 'kill', reviewed: false, included: true, rowKey: 'left|alexenemy', firstSeen: 4, start: 2.5, end: 5.5, evidence: {} };
+  const bob = mergeHudRescan({ hud: { identity: { name: 'Alex' } }, events: [oldAlex] }, { status: 'complete', events: [freshBob], message: 'ok' }, 'Bob');
+  const bobIds = bob.events.map(event => event.id);
+  assert.equal(new Set(bobIds).size, bobIds.length);
+  const retainedAlex = bob.events.find(event => event.retained && event.reviewed);
+  assert.ok(retainedAlex);
+  assert.equal(retainedAlex.id, 'hud-1');
+  assert.equal(bob.events.find(event => !event.retained).id, 'hud-1-r1');
+
+  const freshAlex = { id: 'hud-1', source: 'hud-ocr', kind: 'observation', context: 'kill', reviewed: false, included: true, rowKey: 'left|alexenemy', firstSeen: 2.2, start: 0.7, end: 3.7, evidence: {} };
+  const back = mergeHudRescan({ hud: bob.hud, events: bob.events }, { status: 'complete', events: [freshAlex], message: 'ok' }, 'Alex');
+  const backIds = back.events.map(event => event.id);
+  assert.equal(new Set(backIds).size, backIds.length);
+  const restored = back.events.find(event => !event.retained);
+  assert.equal(restored.id, 'hud-1');
+  assert.equal(restored.reviewed, true);
+  assert.equal(restored.included, false);
+  // The restored Alex confirmation is the non-retained matched candidate; the
+  // unconfirmed Bob row remains retained and cannot collide with it.
+  assert.equal(back.events.filter(event => event.retained && event.reviewed).length, 0);
+  assert.ok(back.events.some(event => event.retained && event.evidence?.previousIdentity === 'Bob'));
+});

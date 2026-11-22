@@ -97,12 +97,12 @@ npx playwright install chromium
 npm run test:ui
 ```
 
-- 当前 `npm test` 25 项、`npm run test:ui` 24 项；HUD UI 回归 5 项。
+- 当前 `npm test` 26 项、`npm run test:ui` 24 项；HUD UI 回归 5 项。
 - `tests/events.test.mjs`：持续行/行上移去重、同名重新出现、`AlexB/Alex1/Alexll` 等非精确身份拒绝、队友/助攻/缺少边缘/歧义名字拒绝、低置信度、中文名、关联轨迹不伪造证据、HUD 确认仍 0 量化、采样频率、超 8 秒多轮 episode 的 coarse→refine 不合并。
 - `tests/ui/hud-events.spec.js`：真实画布 WebM → 导入 → seek 解码 → **真实本地 Tesseract OCR** → kill/death 候选 → 0.5× 跳转/确认/排除 → 重启保留；模型失败、零候选、取消保留、旧报告补填身份。
 - 合成 8 秒 HUD 视频的实际测试曾产生 **23 次 OCR 扫描、3 个 HUD 候选（kill/death/kill）**，OCR 阶段约 **2.5 秒**（报告 `hud.elapsedMs`），原视频约 166 个分析帧；具体数字会写入报告。该数字只证明管线非 stub，不是召回率或准确率。报告截图见 `artifacts/full-ui/dsh/16-hud-report-1440x900.png`。
-- 进度使用阶段单调映射：轨迹 0–55%，自动识别 55–100%；worker 日志不再把每帧识别重置为低进度；结束显示 100%。取消测试会等到自动识别初始化/扫描阶段再取消，并在 finally 终止 worker，报告字段 `hud.workerTerminated=true`；被 abort/timeout 抢先的 `createWorker` 晚完成时也会 terminate。
-- 重扫失败/取消/缺名**不写持久化报告**：保留原报告字节、原 reviewed/included 和录像，只在当前界面显示本次失败。成功重扫同一身份时按行签名和 8 秒内时间邻近保留匹配事件的确认/排除/场景纠正；身份改变或未匹配的旧候选不静默删除，而是 `retained: true` 保留在报告中供审查/排除。
+- 进度使用阶段单调映射：轨迹 0–55%，自动识别 55–100%；worker 日志不再把每帧识别重置为低进度；结束显示 100%。取消测试会等到自动识别初始化/扫描阶段再取消，并在 finally 终止 worker；报告字段 `hud.workerTerminated` 仅在确实取得 worker 且 `terminate()` 成功后为 `true`，否则为 `false`（不是外部清理证明）。被 abort/timeout 抢先的 `createWorker` 晚完成时也会 terminate。
+- 重扫失败/取消/缺名**不写持久化报告**：保留原报告字节、原 reviewed/included 和录像，只在当前界面显示本次失败。成功重扫同一身份时按行签名和 8 秒内时间邻近保留匹配事件的确认/排除/场景纠正；身份改变或未匹配的旧候选不静默删除，而是 `retained: true` 保留在报告中供审查/排除。合并时保留旧事件 ID；同身份匹配候选沿用旧 ID；新未匹配事件使用不碰撞的稳定后缀 ID。多次改变身份再扫回原身份可恢复原确认，且不会产生两个相同 `hud-1` 或吞掉旧确认。
 - DSH 本机的 plain Electron 仍受环境限制；负责人 normal-sandbox Electron 已实际运行真实 OCR 并得到 3 个 kill/death/kill、无外部请求，source smoke 通过。该结果属于负责人环境；真实游戏 HUD、中文真实样本、不同 HUD 缩放/语言/分辨率、长局吞吐和误检率仍未系统验证。
 - 当前 Chromium 工程验证只用合成视频；不能由合成 8 秒视频推导任何真实准确率或召回率。
 

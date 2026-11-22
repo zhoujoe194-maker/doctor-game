@@ -232,54 +232,77 @@ export function associateHudEvents(hudEvents, trajectoryEvents, windowSeconds = 
   return hudEvents;
 }
 
+function hudEventIdentity(event, fallback) {
+  return event?.evidence?.identity || event?.evidence?.previousIdentity || fallback || '';
+}
+function nextUniqueHudId(preferred, reserved, assigned) {
+  const base = String(preferred || 'hud');
+  let id = base, suffix = 1;
+  while (reserved.has(id) || assigned.has(id)) id = `${base}-r${suffix++}`;
+  assigned.add(id);
+  return id;
+}
 export function mergeHudRescan(report, result, newName) {
   const oldHud = report.events.filter(event => event.source === 'hud-ocr');
   const oldIdentity = report.hud?.identity?.name || '';
-  const sameIdentity = Boolean(oldIdentity) && normalizeName(oldIdentity) === normalizeName(newName);
+  const newIdentityNorm = normalizeName(newName);
   const candidates = (result.events || []).map(event => ({
     ...event,
-    source: 'hud-ocr', kind: 'observation',
-    retained: false,
+    source: 'hud-ocr', kind: 'observation', retained: false,
     evidence: { ...(event.evidence || {}), identity: newName }
   }));
-  const used = new Set();
-  if (sameIdentity) {
-    for (const candidate of candidates) {
-      const match = oldHud.find(old => !old.retained && !used.has(old.id)
-        && old.rowKey && old.rowKey === candidate.rowKey
-        && Math.abs((old.firstSeen ?? old.start ?? 0) - (candidate.firstSeen ?? candidate.start ?? 0)) <= 8);
-      if (!match) continue;
-      used.add(match.id);
+  const reserved = new Set(oldHud.map(event => event.id).filter(Boolean));
+  const assigned = new Set();
+  const matchedOld = new Set();
+  for (const candidate of candidates) {
+    const match = oldHud.find(old => !matchedOld.has(old)
+      && normalizeName(hudEventIdentity(old, oldIdentity)) === newIdentityNorm
+      && old.rowKey && old.rowKey === candidate.rowKey
+      && Math.abs((old.firstSeen ?? old.start ?? 0) - (candidate.firstSeen ?? candidate.start ?? 0)) <= 8);
+    if (match) {
+      matchedOld.add(match);
+      candidate.id = match.id;
       candidate.reviewed = Boolean(match.reviewed);
       candidate.included = match.included !== false;
       candidate.context = match.context || candidate.context;
+      assigned.add(candidate.id);
+    } else {
+      candidate.id = nextUniqueHudId(candidate.id, reserved, assigned);
     }
   }
-  const retained = oldHud.filter(old => !used.has(old.id)).map(old => ({
-    ...old,
-    retained: true,
-    retainedReason: sameIdentity ? 'not-matched' : 'identity-changed',
-    reviewed: Boolean(old.reviewed),
-    included: old.included !== false,
-    kind: 'observation',
-    evidence: {
-      ...(old.evidence || {}),
-      identity: old.evidence?.identity || oldIdentity,
-      previousIdentity: old.evidence?.previousIdentity || oldIdentity,
-      retainedReason: sameIdentity ? 'not-matched' : 'identity-changed'
-    }
-  }));
+  const retainedIds = new Set();
+  const retained = oldHud.filter(old => !matchedOld.has(old)).map(old => {
+    const oldIdentityLabel = hudEventIdentity(old, oldIdentity);
+    let id = old.id || nextUniqueHudId('hud', reserved, assigned);
+    if (retainedIds.has(id) || assigned.has(id)) id = nextUniqueHudId(id, reserved, new Set([...assigned, ...retainedIds]));
+    retainedIds.add(id);
+    const reason = normalizeName(oldIdentityLabel) === newIdentityNorm ? 'not-matched' : 'identity-changed';
+    return {
+      ...old,
+      id,
+      retained: true,
+      retainedReason: reason,
+      reviewed: Boolean(old.reviewed),
+      included: old.included !== false,
+      kind: 'observation',
+      evidence: {
+        ...(old.evidence || {}),
+        identity: oldIdentityLabel,
+        previousIdentity: old.evidence?.previousIdentity || oldIdentityLabel,
+        retainedReason: reason
+      }
+    };
+  });
   const events = [...candidates, ...retained].sort((a, b) => a.start - b.start);
   const hud = {
     ...result,
-    identity: { name: newName, normalized: normalizeName(newName) },
+    identity: { name: newName, normalized: newIdentityNorm },
     retained: retained.length,
     retainedConfirmed: retained.filter(event => event.reviewed).length
   };
   if (retained.length) hud.message = (hud.message || '') + ` 旧报告有 ${retained.length} 个候选未匹配或来自旧身份，已保留并标为待审查（其中已确认 ${hud.retainedConfirmed} 个）。`;
   return { events, hud };
 }
-
 
 export function hudSampleTimes(duration, interval = HUD_SAMPLE_SECONDS) {
   const times = [];
@@ -377,7 +400,7 @@ export async function detectHudEvents(source, { duration, playerName, signal, in
   const identity = String(playerName ?? '').trim();
   const base = {
     detector: HUD_DETECTOR_VERSION, model: HUD_MODEL, identity: { name: identity, normalized: normalizeName(identity) },
-    status: 'name-required', events: [], scans: 0, ocrRuns: 0, candidates: 0, rejected: {}, elapsedMs: 0,
+    status: 'name-required', events: [], scans: 0, ocrRuns: 0, candidates: 0, rejected: {}, elapsedMs: 0, workerTerminated: false,
     intervalSeconds: interval, region: { ...HUD_REGION }, message: '未填写本局玩家名，未运行击杀与死亡自动识别。可以补填后重新识别。'
   };
   if (normalizeName(identity).length < 2) return base;
@@ -436,8 +459,11 @@ export async function detectHudEvents(source, { duration, playerName, signal, in
     payload = { ...base, status: 'error', scans, ocrRuns, candidates: 0, rejected, elapsedMs: Math.round(performance.now() - startedAt), message: `击杀与死亡自动识别未完成：${detail} 录像和已有报告仍保留，可以重试或手动标记。` };
     return payload;
   } finally {
-    try { await worker?.terminate?.(); } catch { /* worker already gone */ }
-    if (payload) payload.workerTerminated = true;
+    let terminated = false;
+    if (worker) {
+      try { await worker.terminate(); terminated = true; } catch { terminated = false; }
+    }
+    if (payload) payload.workerTerminated = terminated;
     if (ownVideo) { video.removeAttribute('src'); video.load(); }
   }
 }
