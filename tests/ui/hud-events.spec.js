@@ -25,11 +25,25 @@ test('full video import produces real local HUD kill/death candidates with revie
   page.on('pageerror', error => errors.push(error.message));
   page.on('request', request => requests.push(request.url()));
   await page.goto('/');
+  await page.evaluate(() => {
+    window.__progressValues = [];
+    window.__progressTimer = setInterval(() => {
+      const progress = document.querySelector('progress');
+      if (!progress) return;
+      const value = Math.round(Number(progress.value) * 100);
+      if (value >= 0 && value <= 100 && window.__progressValues.at(-1) !== value) window.__progressValues.push(value);
+    }, 50);
+  });
   const file = await createHudVideo(page, path.resolve('artifacts/fixtures/hud-events-ocr.webm'), { duration: 8 });
   await importFile(page, file, { playerName: 'PlayerOne' });
-  await expect(page.locator('.event-row').filter({ hasText: 'HUD 自动识别' }).first()).toBeVisible({ timeout: 150000 });
+  await expect(page.locator('.event-row').filter({ hasText: '自动识别' }).first()).toBeVisible({ timeout: 150000 });
   const first = await report(page);
   expect(first.hud.status).toBe('complete');
+  expect(first.hud.workerTerminated).toBe(true);
+  const progressValues = await page.evaluate(() => { clearInterval(window.__progressTimer); return window.__progressValues; });
+  expect(progressValues.length).toBeGreaterThan(0);
+  expect(progressValues.every((value, index) => index === 0 || value >= progressValues[index - 1])).toBe(true);
+  expect(progressValues.at(-1)).toBe(100);
   expect(first.hud.ocrRuns).toBeGreaterThan(0);
   expect(first.hud.scans).toBeGreaterThan(0);
   expect(first.hud.ocrRuns).toBeLessThan(first.processed);
@@ -39,6 +53,7 @@ test('full video import produces real local HUD kill/death candidates with revie
   expect(hudEvents.some(event => event.context === 'kill')).toBe(true);
   expect(hudEvents.some(event => event.context === 'death')).toBe(true);
   expect(hudEvents.every(event => event.kind === 'observation' && event.reviewed === false && event.source === 'hud-ocr')).toBe(true);
+  expect(hudEvents.every(event => event.evidence.leftText === 'PlayerOne' || event.evidence.rightText === 'PlayerOne')).toBe(true);
   expect(first.hud.identity.name).toBe('PlayerOne');
   const recordingSnapshot = await page.evaluate(async id => {
     const { storage } = await import('/src/storage.js');
@@ -51,9 +66,12 @@ test('full video import produces real local HUD kill/death candidates with revie
   expect(requests.some(url => /cdn\.jsdelivr|tessdata\.projectnaptha|unpkg\.com/i.test(url))).toBe(false);
   expect(requests.every(url => url.startsWith('http://127.0.0.1:4173/') || url.startsWith('blob:') || url.startsWith('data:'))).toBe(true);
 
-  await page.locator('.event-row').filter({ hasText: 'HUD 自动识别' }).first().click();
-  await expect(page.locator('.hud-evidence')).toContainText('HUD 识别依据');
+  await page.locator('.event-row').filter({ hasText: '自动识别' }).first().click();
+  await expect(page.locator('.hud-evidence')).toContainText('识别依据');
   await expect(page.locator('.hud-evidence')).toContainText('PlayerOne');
+  await expect(page.locator('.hud-evidence')).toContainText('文字识别分');
+  await expect(page.locator('#review-kind option:checked')).toHaveText('自动识别 · 不量化');
+  await expect(page.locator('.event-row').first()).not.toContainText('%');
   await expect(page.locator('#playback-rate')).toHaveValue('0.5');
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.screenshot({ path: 'artifacts/full-ui/dsh/16-hud-report-1440x900.png', fullPage: true });
@@ -65,8 +83,46 @@ test('full video import produces real local HUD kill/death candidates with revie
     expect(box.y + box.height).toBeLessThanOrEqual(720);
   }
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.getByRole('button', { name: '确认 HUD 候选', exact: true }).click();
+  await page.getByRole('button', { name: '确认事件', exact: true }).click();
   await expect(page.getByTestId('quantified-count')).toContainText('0 / 20');
+  await expect(page.getByRole('button', { name: '已确认 · 更新', exact: true })).toBeVisible();
+  await expect(page.locator('.event-row').first()).toContainText('自动识别 · 已确认');
+
+  // Same-identity rescan must retain reviewed/included decisions for matching rows.
+  await page.locator('#hud-setup > summary').click();
+  await page.locator('#hud-player-name').fill('PlayerOne');
+  await page.locator('#hud-rescan').click();
+  await expect(page.getByRole('heading', { name: '赛后复盘', exact: true })).toBeVisible({ timeout: 120000 });
+  const afterRescan = await report(page);
+  expect(afterRescan.events.filter(event => event.source === 'hud-ocr' && event.reviewed).length).toBeGreaterThanOrEqual(1);
+
+  // Changing identity on a rescan must preserve the previous confirmed event as an
+  // auditable retained candidate, never silently delete it.
+  await page.locator('#hud-setup > summary').click();
+  await page.locator('#hud-player-name').fill('OtherPlayer');
+  await page.locator('#hud-rescan').click();
+  await expect(page.getByRole('heading', { name: '赛后复盘', exact: true })).toBeVisible({ timeout: 120000 });
+  const afterIdentityChange = await report(page);
+  const retainedConfirmed = afterIdentityChange.events.find(event => event.source === 'hud-ocr' && event.retained);
+  expect(retainedConfirmed).toBeTruthy();
+  expect(retainedConfirmed.reviewed).toBe(true);
+  expect(retainedConfirmed.evidence.previousIdentity).toBe('PlayerOne');
+  await expect(page.locator('.event-row').filter({ hasText: '旧候选保留' }).first()).toBeVisible();
+
+  // A failed rescan must leave the exact stored report (including confirmations) untouched.
+  const rawBeforeFailure = await page.evaluate(() => {
+    const key = Object.keys(localStorage).find(item => item.startsWith('sight-report-'));
+    return localStorage.getItem(key);
+  });
+  await page.route('**/assets/ocr/worker.min.js', route => route.abort());
+  await page.locator('#hud-setup > summary').click();
+  await page.locator('#hud-player-name').fill('OtherPlayer');
+  await page.locator('#hud-rescan').click();
+  await expect(page.locator('#notice')).toContainText('自动识别未完成', { timeout: 30000 });
+  expect(await page.evaluate(() => {
+    const key = Object.keys(localStorage).find(item => item.startsWith('sight-report-'));
+    return localStorage.getItem(key);
+  })).toBe(rawBeforeFailure);
   await expect(page.getByRole('button', { name: '已确认 · 更新', exact: true })).toBeVisible();
   await page.locator('#exclude-event').click();
   await expect(page.locator('#exclude-event')).toHaveText('恢复此片段');
@@ -82,7 +138,7 @@ test('full video import produces real local HUD kill/death candidates with revie
   await page.locator('.library-card').click();
   await expect(page.getByRole('heading', { name: '赛后复盘', exact: true })).toBeVisible();
   const persisted = await report(page);
-  expect(persisted.hud.identity.name).toBe('PlayerOne');
+  expect(persisted.hud.identity.name).toBe('OtherPlayer');
   expect(persisted.profile.dpi).toBe(800);
   expect(persisted.events.some(event => event.source === 'hud-ocr')).toBe(true);
   expect(errors).toEqual([]);
@@ -97,7 +153,7 @@ test('HUD model failure keeps the recording and report usable', async ({ page })
   const saved = await report(page);
   expect(saved.hud.status).toBe('error');
   expect(await page.locator('.hud-setup')).toContainText('识别失败 · 可重试');
-  await expect(page.locator('.hud-message')).toContainText('HUD 自动识别未完成');
+  await expect(page.locator('.hud-message')).toContainText('击杀与死亡自动识别未完成');
   await page.getByRole('button', { name: '对局记录', exact: true }).click();
   await expect(page.locator('.library-card')).toHaveCount(1);
 });
@@ -128,6 +184,7 @@ test('cancelling HUD scanning keeps the recording and leaves no partial report',
   await page.getByRole('button', { name: '导入录像', exact: true }).click();
   await (await chooser).setFiles(file);
   await expect(page.getByRole('button', { name: '取消分析，保留录像', exact: true })).toBeVisible({ timeout: 60000 });
+  await expect(page.locator('.progress-page h1')).toContainText(/加载本地 OCR|扫描击杀与死亡信息/, { timeout: 60000 });
   await page.getByRole('button', { name: '取消分析，保留录像', exact: true }).click();
   await expect(page.getByRole('heading', { name: '对局记录', exact: true })).toBeVisible();
   await expect(page.locator('#notice')).toContainText('分析已取消');
@@ -152,10 +209,10 @@ test('legacy report can be given an identity later without changing its profile 
   await page.reload();
   await expect(page.getByRole('heading', { name: '继续上一局', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '继续复盘', exact: true }).click();
-  await expect(page.locator('.hud-setup')).toContainText('旧报告未包含 HUD 信息');
+  await expect(page.locator('.hud-setup')).toContainText('旧报告未包含自动识别信息');
   await page.locator('#hud-player-name').fill('PlayerOne');
   await page.locator('#hud-rescan').click();
-  await expect(page.locator('.hud-setup')).toContainText('个本人 HUD 候选', { timeout: 150000 });
+  await expect(page.locator('.hud-setup')).toContainText('个本人候选', { timeout: 150000 });
   const after = await report(page);
   expect(after.profile.dpi).toBe(800);
   expect(after.profile.sensitivity).toBe(0.35);

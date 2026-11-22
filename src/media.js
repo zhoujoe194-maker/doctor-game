@@ -159,7 +159,7 @@ export async function analyzeVideo(url, item, onProgress, signal) {
       if (targets.length) detected++;
       if (targets.length > 1) ambiguous++;
       tracker.push(t, targets); processed++;
-      if (index % 20 === 0) { onProgress({ fraction: index / total, processed, total, candidates: tracker.events.length + preaim.length }); await new Promise(r => setTimeout(r, 0)); }
+      if (index % 20 === 0) { onProgress({ fraction: Math.min(0.55, (index / total) * 0.55), processed, total, candidates: tracker.events.length + preaim.length, phase: '扫描瞄准候选' }); await new Promise(r => setTimeout(r, 0)); }
     }
     flushMotion();
     const trajectoryEvents = [...tracker.finish().map(e => ({ ...e, context: 'unknown', source: 'trajectory' })), ...preaim.map(e => ({ ...e, source: 'preaim' }))]
@@ -181,6 +181,7 @@ export async function analyzeVideo(url, item, onProgress, signal) {
       hud = { status: 'error', events: [], identity: { name: playerName }, message: `HUD 自动识别未完成：${error.message}`, scans: 0, ocrRuns: 0, candidates: 0 };
     }
     const events = [...trajectoryEvents, ...(hud?.events || [])].sort((a, b) => a.start - b.start);
+    onProgress?.({ fraction: 1, processed, total, candidates: events.length, phase: '完成' });
     return { id: item.id, version: ANALYSIS_VERSION, createdAt: new Date().toISOString(), profile: { ...item.profile }, duration, events, hud, processed, detected, ambiguous, demo: false };
   } finally { video.removeAttribute('src'); video.load(); }
 }

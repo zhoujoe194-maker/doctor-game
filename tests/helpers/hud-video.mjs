@@ -21,17 +21,17 @@ export async function createHudVideo(page, output, { playerName = 'PlayerOne', d
       ctx.fillStyle = '#e9eff2'; ctx.font = '20px sans-serif'; ctx.fillText((frame / 20).toFixed(1) + ' s', 1150, 35);
       const t = frame / 20;
       // Same right-top region as HUD_REGION (x .68, y .07, w .31, h .42).
-      const left = 900, right = 1085, row = 145;
+      const left = 880, icon = 1040, right = 1100, row = 145;
       const drawRow = (a, b, y) => {
         ctx.fillStyle = '#0b0e10'; ctx.fillRect(870, y - 34, 390, 58);
-        ctx.fillStyle = '#ffffff'; ctx.font = 'bold 26px Arial, sans-serif'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#ffffff'; ctx.font = '28px Arial, sans-serif'; ctx.textBaseline = 'middle';
         ctx.fillText(a, left, y);
-        ctx.fillStyle = '#f0b45b'; ctx.fillRect(1032, y - 18, 28, 28);
+        ctx.fillStyle = '#f0b45b'; ctx.fillRect(icon, y - 17, 24, 24);
         ctx.fillStyle = '#ffffff'; ctx.fillText(b, right, y);
         ctx.textBaseline = 'alphabetic';
       };
       if (t >= 1.5 && t < 3.5) drawRow(playerName, 'EnemyOne', row);
-      else if (t >= 4.5 && t < 6.2) { ctx.fillStyle = '#0b0e10'; ctx.fillRect(870, row - 34, 390, 58); ctx.fillStyle = '#ffffff'; ctx.font = 'bold 26px Arial, sans-serif'; ctx.textBaseline = 'middle'; ctx.fillText('EnemyTwo', left, row); ctx.fillStyle = '#f0b45b'; ctx.fillRect(1032, row - 18, 28, 28); ctx.fillStyle = '#ffffff'; ctx.fillText(playerName, right, row); ctx.textBaseline = 'alphabetic'; }
+      else if (t >= 4.5 && t < 6.2) { ctx.fillStyle = '#0b0e10'; ctx.fillRect(870, row - 34, 390, 58); ctx.fillStyle = '#ffffff'; ctx.font = 'bold 26px Arial, sans-serif'; ctx.textBaseline = 'middle'; ctx.fillText('EnemyTwo', left, row); ctx.fillStyle = '#f0b45b'; ctx.fillRect(icon, row - 17, 24, 24); ctx.fillStyle = '#ffffff'; ctx.fillText(playerName, right, row); ctx.textBaseline = 'alphabetic'; }
       else if (t >= 6.7 && t < 7.7) drawRow(playerName, 'EnemyThree', row + 48);
     };
     // initial frame then animate for the requested duration at 20 fps

@@ -1,14 +1,14 @@
 import { DEFAULT_PROFILE, HABIT_LABELS, SCENE_LABELS, validateProfile, recommend, MIN_REVIEWED } from './analysis.js';
 import { storage, saveProfile, saveReport } from './storage.js';
 import { beginCapture, analyzeVideo, inspectVideo, makeDemo } from './media.js';
-import { detectHudEvents, associateHudEvents } from './events.js';
+import { detectHudEvents, associateHudEvents, mergeHudRescan } from './events.js';
 
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, s => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[s]));
 const time = seconds => `${String(Math.floor((seconds || 0) / 60)).padStart(2, '0')}:${String(Math.floor((seconds || 0) % 60)).padStart(2, '0')}`;
 const clipTime = seconds => `${time(seconds)}.${String(Math.floor((seconds % 1) * 100)).padStart(2, '0')}`;
 const kindLabel = { overshoot: '越过目标', undershoot: '移动不足', settled: '接近目标', preaim: '视角运动观察', observation: '手动标记 · 待量化' };
-const eventKindLabel = event => event?.source === 'hud-ocr' ? 'HUD 自动识别 · 待确认' : kindLabel[event?.kind] || kindLabel.observation;
+const eventKindLabel = event => event?.source === 'hud-ocr' ? (event.retained ? (event.reviewed ? '旧候选保留 · 已确认' : '旧候选保留 · 待审查') : event.reviewed ? '自动识别 · 已确认' : '自动识别 · 待确认') : kindLabel[event?.kind] || kindLabel.observation;
 const hudCandidateCount = report => (report?.events || []).filter(event => event.source === 'hud-ocr').length;
 const sceneGuidance = {
   unknown: '先回看接敌的完整过程，再确认片段属于哪一种场景。',
@@ -158,7 +158,7 @@ function workspaceView() {
 }
 
 function playerNameField() {
-  return '<label class="hud-name-field" for="player-name"><span>录像中的玩家名 <small>用于本地 HUD 识别，可留空</small></span><input id="player-name" name="playerName" type="text" maxlength="32" autocomplete="off" spellcheck="false" value="' + esc(state.playerName) + '" placeholder="例如 PlayerOne"></label>';
+  return '<label class="hud-name-field" for="player-name"><span>录像中的玩家名 <small>用于击杀与死亡自动识别，可留空</small></span><input id="player-name" name="playerName" type="text" maxlength="32" autocomplete="off" spellcheck="false" value="' + esc(state.playerName) + '" placeholder="例如 PlayerOne"></label>';
 }
 
 function profileSummaryCard() {
@@ -349,11 +349,11 @@ function progressView() {
 
 function hudStatusText(report) {
   const hud = report?.hud;
-  if (!hud) return '旧报告未包含 HUD 信息';
+  if (!hud) return '旧报告未包含自动识别信息';
   if (hud.status === 'name-required') return '未运行 · 缺少玩家名';
   if (hud.status === 'error') return '识别失败 · 可重试';
-  if (hud.status === 'zero') return '未识别到本人行';
-  if (hud.status === 'complete') return hudCandidateCount(report) + ' 个本人 HUD 候选';
+  if (hud.status === 'zero') return '未识别到本人行' + (hud.retained ? ' · 保留旧候选' : '');
+  if (hud.status === 'complete') return hudCandidateCount(report) + ' 个本人候选' + (hud.retained ? ' · 保留旧候选 ' + hud.retained : '');
   return hud.status || '未运行';
 }
 
@@ -362,9 +362,9 @@ function hudSetupMarkup(report) {
   const hud = report.hud;
   const identity = hud?.identity?.name || state.item?.playerName || '';
   const open = !hud || hud.status === 'name-required' || hud.status === 'error';
-  return '<details class="hud-setup" id="hud-setup" ' + (open ? 'open' : '') + '><summary>HUD 自动识别 <span class="hud-status">' + esc(hudStatusText(report)) + '</span></summary>' +
-    '<form id="hud-form"><label>录像中的玩家名<input id="hud-player-name" name="playerName" type="text" maxlength="32" autocomplete="off" spellcheck="false" value="' + esc(identity) + '" placeholder="例如 PlayerOne"></label><button class="button secondary" type="submit" id="hud-rescan">识别本人事件</button></form>' +
-    '<p class="field-hint">只用于这段录像的 HUD 候选；不会改档案、旧报告或录像。自动候选仍需回放确认，确认后也不会进入量化样本。</p>' +
+  return '<details class="hud-setup" id="hud-setup" ' + (open ? 'open' : '') + '><summary>击杀与死亡自动识别 <span class="hud-status">' + esc(hudStatusText(report)) + '</span></summary>' +
+    '<form id="hud-form"><label>录像中的玩家名<input id="hud-player-name" name="playerName" type="text" maxlength="32" autocomplete="off" spellcheck="false" value="' + esc(identity) + '" placeholder="例如 PlayerOne"></label><button class="button secondary" type="submit" id="hud-rescan">识别击杀与死亡</button></form>' +
+    '<p class="field-hint">只用于这段录像的自动候选；不会改档案、旧报告或录像。候选仍需回放确认，确认后也不会进入量化样本。文字识别分不是事件准确率。</p>' +
     (hud?.message ? '<p class="hud-message">' + esc(hud.message) + '</p>' : '') + '</details>';
 }
 
@@ -394,7 +394,7 @@ function eventRows() {
   const events = filteredEvents();
   return events.length ? events.map(e => '<button class="event-row ' + (state.eventIndex === e.index ? 'selected' : '') + '" data-event="' + e.index + '" aria-pressed="' + (state.eventIndex === e.index) + '">' +
     '<span class="event-main"><strong>' + clipTime(e.start) + '</strong><span class="review-state">' + (!e.included ? '已排除' : e.reviewed ? '已确认' : '待确认') + '</span></span>' +
-    '<span class="scene-label">' + SCENE_LABELS[e.context || 'unknown'] + '</span><span class="kind-label ' + e.kind + (e.source === 'hud-ocr' ? ' hud-source' : '') + '">' + eventKindLabel(e) + (e.source === 'hud-ocr' && e.ocrConfidence ? ' · ' + Math.round(e.ocrConfidence) + '%' : '') + '</span></button>').join('') :
+    '<span class="scene-label">' + SCENE_LABELS[e.context || 'unknown'] + '</span><span class="kind-label ' + e.kind + (e.source === 'hud-ocr' ? ' hud-source' : '') + '">' + eventKindLabel(e) + '</span></button>').join('') :
     '<div class="list-empty">' + (state.report.events.length ? '没有符合筛选条件的片段。' : '没有找到清晰的候选片段。播放完整录像，确认后可手动标记；录像已保留。') + '</div>';
 }
 
@@ -454,10 +454,10 @@ function helpView() {
   return '<section class="help-page"><header class="page-head"><div><h1>使用帮助</h1><p>录制、复盘、本地存储和当前版本的实际限制。</p></div></header><div class="help-grid">' +
     '<section class="help-block"><h2>录像在哪里，怎样停止？</h2><p>桌面版录像和报告只保存在本机用户数据目录；关闭窗口后仍可从托盘结束录制。浏览器预览版保存在当前浏览器，清理网站数据会移除。</p><p>开始录制需要手动选择一个正在显示游戏画面的完整窗口，必须在游戏结束后点击“结束并分析”。</p></section>' +
     '<section class="help-block"><h2>没有收到窗口画面怎么办？</h2><p>等待阶段可以取消或重新选择窗口；8 秒没有收到可解码画面就不会开始录制，也不会保存空录像。请确认窗口正在显示动态画面，并检查系统录屏权限。</p><p>如果录像实际为空，记录页会显示“无画面”并拒绝分析；原文件和元数据仍保留在本机。</p></section>' +
-    '<section class="help-block"><h2>为什么片段还要手动确认？</h2><p>颜色轮廓、背景位移和 HUD 击杀信息都只是候选线索，不是训练好的敌人识别。HUD 识别只按玩家名在击杀信息左右两侧的位置给出本人击杀/死亡候选，会拒绝队友、助攻、模糊名字和低置信度行；仍可能受 HUD 布局、皮肤、语言和遮挡影响，需要回放确认。</p><p>合成示例、手动标记、HUD 自动候选、预瞄、未知场景和已排除片段都不会成为量化样本。</p></section>' +
+    '<section class="help-block"><h2>为什么片段还要手动确认？</h2><p>颜色轮廓、背景位移和击杀信息文字都只是候选线索，不是训练好的敌人识别。自动识别只按玩家名在击杀信息左右两侧的位置给出本人击杀/死亡候选，会拒绝队友、助攻、模糊名字和低置信度行；仍可能受击杀信息布局、皮肤、语言和遮挡影响，需要回放确认。</p><p>合成示例、手动标记、自动识别候选、预瞄、未知场景和已排除片段都不会成为量化样本。</p></section>' +
     '<section class="help-block"><h2>建议值怎么来的？</h2><p>至少 ' + MIN_REVIEWED + ' 个已确认且未排除的击杀/被击杀/对枪片段，并且同一调整方向占比达到 65%、Wilson 下界大于 50%，才提出 ±3% 的试验值；否则保持当前值。</p><p>这些阈值是原型的工程规则，不是已验证的最佳灵敏度或成功概率。片段之间也不一定相互独立。</p></section>' +
-    '<section class="help-block"><h2>没有候选片段怎么办？</h2><p>可以播放完整录像，在想到的位置手动标记击杀、被击杀、对枪或预瞄事件。手动标记只用于复盘，不进入灵敏度建议的有效样本；也可以导入另一段录像。</p><p>如果 HUD 没有识别到本人行，打开报告底部的「HUD 自动识别」补填录像中的玩家名后重新识别；原录像和原报告会保留。取消分析也不会删除录像，可在对局记录中重新打开。</p></section>' +
-    '<section class="help-block"><h2>当前版本的限制</h2><p>尚未验证 Windows 游戏窗口/全屏捕获、Vanguard、长时间录制和游戏帧率影响，也未获得 Riot 审核。HUD 击杀/死亡识别是本机实验性 OCR，只使用合成录像验证工程管线，尚未评估真实对局召回率、误检率或不同分辨率/语言下的稳定性；灵敏度建议仍需玩家用实际复测确认。</p></section>' +
+    '<section class="help-block"><h2>没有候选片段怎么办？</h2><p>可以播放完整录像，在想到的位置手动标记击杀、被击杀、对枪或预瞄事件。手动标记只用于复盘，不进入灵敏度建议的有效样本；也可以导入另一段录像。</p><p>如果自动识别没有找到本人行，打开报告底部的「击杀与死亡自动识别」补填录像中的玩家名后重新识别；原录像和原报告会保留。取消分析也不会删除录像，可在对局记录中重新打开。</p></section>' +
+    '<section class="help-block"><h2>当前版本的限制</h2><p>尚未验证 Windows 游戏窗口/全屏捕获、Vanguard、长时间录制和游戏帧率影响，也未获得 Riot 审核。击杀/死亡自动识别是本机实验性 OCR，只使用合成录像验证工程管线，尚未评估真实对局召回率、误检率或不同分辨率/语言下的稳定性；灵敏度建议仍需玩家用实际复测确认。</p></section>' +
     '</div></section>';
 }
 
@@ -465,7 +465,8 @@ function hudEvidenceMarkup(event) {
   const evidence = event?.evidence || {};
   const confidence = Math.round((event?.ocrConfidence || event?.confidence * 100 || 0));
   const related = evidence.relatedEventId ? ' · 邻近轨迹仅供导航，不构成证据' : '';
-  return '<div class="hud-evidence" role="note"><strong>HUD 识别依据</strong><span>' + esc(evidence.rowText || '未保存行文本') + '</span><span>左：' + esc(evidence.leftText || '—') + ' · 右：' + esc(evidence.rightText || '—') + ' · 置信度 ' + confidence + '%' + related + '</span><span>自动候选只作为观察线索；确认后仍没有量化轨迹。</span></div>';
+  const retained = event?.retained ? '<span>旧身份/未匹配候选已保留，请审查后决定是否排除。</span>' : '';
+  return '<details class="hud-evidence"><summary>识别依据 · 文字识别分 ' + confidence + '/100</summary><div class="hud-evidence-body" role="note"><span>来源：本地 OCR · 参与者位置匹配</span><span>读取行：' + esc(evidence.rowText || '未保存行文本') + '</span><span>左：' + esc(evidence.leftText || '—') + ' · 右：' + esc(evidence.rightText || '—') + '</span><span>文字识别分 ' + confidence + '/100，不是事件准确率。' + related + '</span>' + retained + '<span>自动候选只作为观察线索；确认后仍没有量化轨迹。</span></div></details>';
 }
 
 function renderEvidence({ seek = false } = {}) {
@@ -487,8 +488,8 @@ function renderEvidence({ seek = false } = {}) {
 
   controls.innerHTML = e ? '<div class="evidence-caption"><strong>' + clipTime(e.start) + ' — ' + clipTime(e.end) + '</strong><span class="kind-label ' + e.kind + (e.source === 'hud-ocr' ? ' hud-source' : '') + '">' + eventKindLabel(e) + '</span></div>' + '<div class="review-controls"><label>场景<select id="review-context">' +
     Object.entries(SCENE_LABELS).map(([value, label]) => '<option value="' + value + '" ' + (value === (e.context || 'unknown') ? 'selected' : '') + '>' + label + '</option>').join('') + '</select></label>' +
-    '<label>瞄准分类<select id="review-kind" ' + (e.motion || e.kind === 'observation' ? 'disabled' : '') + '>' + Object.entries(kindLabel).map(([value, label]) => '<option value="' + value + '" ' + (e.kind === value ? 'selected' : '') + '>' + label + '</option>').join('') + '</select></label>' +
-    '<button class="button secondary" id="exclude-event">' + (e.included ? '排除此片段' : '恢复此片段') + '</button><button class="button primary" id="confirm-event" ' + (!e.included ? 'disabled' : '') + '>' + icon('check') + (e.reviewed ? '已确认 · 更新' : e.source === 'hud-ocr' ? '确认 HUD 候选' : '确认有效') + '</button></div><p class="review-hint" id="scene-guidance-text">' + sceneGuidance[e.context || 'unknown'] + '</p>' :
+    '<label>瞄准分类<select id="review-kind" ' + (e.motion || e.kind === 'observation' ? 'disabled' : '') + '>' + Object.entries(kindLabel).map(([value, label]) => '<option value="' + value + '" ' + (e.kind === value ? 'selected' : '') + '>' + (value === 'observation' && e.source === 'hud-ocr' ? '自动识别 · 不量化' : label) + '</option>').join('') + '</select></label>' +
+    '<button class="button secondary" id="exclude-event">' + (e.included ? '排除此片段' : '恢复此片段') + '</button><button class="button primary" id="confirm-event" ' + (!e.included ? 'disabled' : '') + '>' + icon('check') + (e.reviewed ? '已确认 · 更新' : e.source === 'hud-ocr' ? '确认事件' : '确认有效') + '</button></div><p class="review-hint" id="scene-guidance-text">' + sceneGuidance[e.context || 'unknown'] + '</p>' :
     '<div class="zero-recovery"><p><strong>没有候选片段。</strong>录像已保留。播放完整录像，确认位置后手动标记关键事件，或导入另一段录像。</p><div class="zero-actions"><button class="button primary" id="zero-mark">' + icon('target') + '标记关键事件</button><button class="button secondary" data-import-video>' + icon('upload') + '导入另一段录像</button><button class="text-button" data-nav="history">返回对局记录 ' + icon('arrow') + '</button></div></div>';
   if (e?.source === 'hud-ocr') controls.insertAdjacentHTML('beforeend', hudEvidenceMarkup(e));
   attachReplayTools(e);
@@ -498,9 +499,9 @@ function renderEvidence({ seek = false } = {}) {
     form?.querySelector('select')?.focus({ preventScroll: true });
   });
   const plot = $('#error-plot');
-  $('#chart-title').textContent = e?.source === 'hud-ocr' ? 'HUD 事件 · 尚无量化轨迹' : e?.motion ? '背景位移估计 · 水平方向' : e?.kind === 'observation' ? '该片段尚无量化轨迹' : '目标相对准星的位置';
-  $('#chart-unit').textContent = e?.source === 'hud-ocr' ? 'HUD 观察 · 不是瞄准证据' : e?.motion ? '屏幕宽度 % · 视角运动的近似' : e?.kind === 'observation' ? '玩家手动标记' : '沿初始瞄准方向 · 屏幕宽度 %';
-  $('#chart-description').textContent = e?.source === 'hud-ocr' ? '这是 HUD 击杀信息的自动候选，没有轨迹、命中结果或对枪证据。请回放确认时间、参与者和场景；确认也不会增加量化样本。' : e?.motion ? '观察到 ' + e.motion.reversals + ' 次方向反转。角色移动与后坐力也会影响画面；这不是手部平滑度，也不直接用于调整灵敏度。' :
+  $('#chart-title').textContent = e?.source === 'hud-ocr' ? '自动识别事件 · 尚无量化轨迹' : e?.motion ? '背景位移估计 · 水平方向' : e?.kind === 'observation' ? '该片段尚无量化轨迹' : '目标相对准星的位置';
+  $('#chart-unit').textContent = e?.source === 'hud-ocr' ? '自动识别 · 不是瞄准证据' : e?.motion ? '屏幕宽度 % · 视角运动的近似' : e?.kind === 'observation' ? '玩家手动标记' : '沿初始瞄准方向 · 屏幕宽度 %';
+  $('#chart-description').textContent = e?.source === 'hud-ocr' ? '这是击杀信息的自动候选，没有轨迹、命中结果或对枪证据。请回放确认时间、参与者和场景；确认也不会增加量化样本。' : e?.motion ? '观察到 ' + e.motion.reversals + ' 次方向反转。角色移动与后坐力也会影响画面；这不是手部平滑度，也不直接用于调整灵敏度。' :
     e?.kind === 'observation' ? '没有可靠的轨迹测量，手动片段不计入灵敏度建议的有效样本。' : '越过零线只是候选线索。确认时请排除压枪、观战、切换目标、明显敌人移动与错误轮廓。';
   const errors = e?.error || [], max = Math.max(5, ...errors.map(Math.abs));
   plot.innerHTML = errors.length ? '<line class="plot-axis" x1="34" y1="66" x2="625" y2="66" stroke-dasharray="3 5"/><text class="plot-label" x="4" y="70">0</text><polyline class="plot-trace" points="' + errors.map((v, i) => (34 + i / Math.max(1, errors.length - 1) * 590) + ',' + (66 - v / max * 49)).join(' ') + '"/>' : '';
@@ -511,7 +512,7 @@ function renderEvidence({ seek = false } = {}) {
     if (context === 'unknown') { notify('请先确认这是击杀、被击杀、对枪未击杀还是预瞄场景。', true); $('#review-context').focus(); return; }
     e.kind = e.kind === 'observation' ? 'observation' : e.motion ? 'preaim' : $('#review-kind').value; e.context = context; e.reviewed = true;
     const saved = persistReport(); refreshReport({ focus: '#confirm-event' });
-    if (saved) notify(e.source === 'hud-ocr' ? 'HUD 候选已确认；它没有量化轨迹，仍不会进入灵敏度建议的样本。' : r.demo ? '示例片段已确认，不计入真实量化样本。' : '片段已确认，报告已保存。');
+    if (saved) notify(e.source === 'hud-ocr' ? '自动识别事件已确认；它没有量化轨迹，仍不会进入灵敏度建议的样本。' : r.demo ? '示例片段已确认，不计入真实量化样本。' : '片段已确认，报告已保存。');
   };
   $('#exclude-event').onclick = () => {
     e.included = !e.included; e.reviewed = false;
@@ -705,49 +706,63 @@ async function runAnalysis(item) {
   await setBusy(true); state.abort = new AbortController(); state.progress = { fraction: 0, label: '正在整理瞄准片段' }; state.page = 'report'; render();
   try {
     state.report = await analyzeVideo(state.mediaUrl, item, progress => {
-      state.progress = progress;
-      const bar = $('progress'); if (bar) bar.value = progress.fraction;
+      const fraction = Math.max(state.progress?.fraction || 0, Math.min(1, Number(progress.fraction) || 0));
+      state.progress = { ...progress, fraction };
+      const bar = $('progress'); if (bar) bar.value = fraction;
       const heading = $('.progress-page h1'); if (progress.phase && heading) heading.textContent = progress.phase;
       const detail = $('.progress-meta'); if (detail) detail.innerHTML = `<span>${Math.round(progress.fraction * 100)}%</span><span>已检查 ${progress.processed.toLocaleString()} 帧 · ${progress.candidates} 个候选${progress.phase ? ' · ' + esc(progress.phase) : ''}</span>`;
     }, state.abort.signal);
+    // Let the final 100% progress paint before switching to the report; this also
+    // makes the stage transition observable instead of ending at the last scan.
+    await new Promise(resolve => setTimeout(resolve, 80));
     state.eventIndex = 0; state.filter = 'all'; state.clipEnd = null; persistReport();
-    const hudNote = state.report.hud?.status === 'name-required' ? ' 未填写玩家名，HUD 事件未识别；可在报告底部补填后重新识别。' :
-      state.report.hud?.status === 'error' ? ' HUD 自动识别未完成，录像和轨迹报告已保留，可稍后重试或手动标记。' :
-      state.report.hud?.status === 'zero' ? ' HUD 中没有找到可靠的本人行，可手动标记或检查玩家名。' :
-      state.report.hud?.status === 'complete' ? ` HUD 识别到 ${state.report.hud.candidates || hudCandidateCount(state.report)} 个本人候选，需回放确认；它们不计入量化样本。` : '';
+    const hudNote = state.report.hud?.status === 'name-required' ? ' 未填写玩家名，击杀/死亡事件未自动识别；可在报告底部补填后重新识别。' :
+      state.report.hud?.status === 'error' ? ' 击杀与死亡自动识别未完成，录像和轨迹报告已保留，可稍后重试或手动标记。' :
+      state.report.hud?.status === 'zero' ? ' 自动识别中没有找到可靠的本人行，可手动标记或检查玩家名。' :
+      state.report.hud?.status === 'complete' ? ` 自动识别到 ${state.report.hud.candidates || hudCandidateCount(state.report)} 个本人候选，需回放确认；它们不计入量化样本。` : '';
     state.notice = { message: state.report.events.length ? '分析完成。请先回放确认候选片段。' + hudNote : '分析完成，没有找到候选片段。录像已保留；可以播放完整录像并手动标记关键事件，或导入另一段录像。' + hudNote, error: false };
   } catch (error) {
     state.page = 'history'; state.notice = { message: error.name === 'AbortError' ? '分析已取消，录像仍保留在对局记录中。' : `分析未完成：${error.message} 录像已保留，可重新打开重试。`, error: error.name !== 'AbortError' };
   } finally { await setBusy(false); state.abort = null; render(); }
 }
+
 async function rescanHud(event) {
   event?.preventDefault();
   if (state.busy || state.capture || state.capturePhase) return;
   const report = state.report;
-  if (!report || report.demo) { notify('示例报告不运行 HUD 识别；请导入自己的录像。', true); return; }
+  if (!report || report.demo) { notify('示例报告不运行击杀与死亡自动识别；请导入自己的录像。', true); return; }
   const name = String($('#hud-player-name')?.value || '').trim();
   if (!name) { notify('请填写录像中显示的玩家名。', true); $('#hud-player-name')?.focus(); return; }
   if (!state.mediaUrl) { notify('录像尚未加载，无法重新识别；请从对局记录重新打开。', true); return; }
-  await setBusy(true); state.abort = new AbortController(); state.progress = { fraction: 0, label: '正在识别 HUD 击杀信息' }; render();
+  await setBusy(true); state.abort = new AbortController(); state.progress = { fraction: 0, label: '正在识别击杀与死亡信息' }; render();
   try {
     const result = await detectHudEvents(state.mediaUrl, {
       duration: report.duration, playerName: name, signal: state.abort.signal,
       onProgress: progress => {
-        state.progress = { ...progress, label: progress.phase || '正在扫描 HUD' };
-        const bar = $('progress'); if (bar) bar.value = progress.fraction;
+        const fraction = Math.max(state.progress?.fraction || 0, Math.min(1, Number(progress.fraction) || 0));
+        state.progress = { ...progress, fraction, label: progress.phase || '正在扫描击杀与死亡信息' };
+        const bar = $('progress'); if (bar) bar.value = fraction;
         const heading = $('.progress-page h1'); if (heading) heading.textContent = state.progress.label;
-        const detail = $('.progress-meta'); if (detail) detail.innerHTML = `<span>${Math.round((progress.fraction || 0) * 100)}%</span><span>HUD 扫描 ${progress.scans || 0} 次 · ${progress.candidates || 0} 个候选</span>`;
+        const detail = $('.progress-meta'); if (detail) detail.innerHTML = `<span>${Math.round((progress.fraction || 0) * 100)}%</span><span>自动识别扫描 ${progress.scans || 0} 次 · ${progress.candidates || 0} 个候选</span>`;
       }
     });
+    if (!result || result.status === 'error' || result.status === 'name-required') {
+      // Failed/cancelled/name-missing scans must not replace the stored report.
+      state.notice = { message: result?.message || '击杀与死亡自动识别未完成；原报告和原录像仍保留。', error: true };
+      return;
+    }
     const trajectory = report.events.filter(event => event.source !== 'hud-ocr');
-    report.hud = result;
-    report.events = [...trajectory, ...associateHudEvents(result.events || [], trajectory)].sort((a, b) => a.start - b.start);
-    state.eventIndex = report.events.findIndex(event => event.source === 'hud-ocr');
+    const merged = mergeHudRescan(report, result, name);
+    report.hud = merged.hud;
+    report.events = [...trajectory, ...associateHudEvents(merged.events, trajectory)].sort((a, b) => a.start - b.start);
+    const firstNew = report.events.findIndex(event => event.source === 'hud-ocr' && !event.retained);
+    state.eventIndex = firstNew >= 0 ? firstNew : report.events.findIndex(event => event.source === 'hud-ocr');
     if (state.eventIndex < 0) state.eventIndex = 0;
     state.filter = 'all'; state.clipEnd = null; persistReport();
-    state.notice = { message: result.message || 'HUD 识别完成。', error: result.status === 'error' };
+    state.notice = { message: merged.hud.message || '击杀与死亡自动识别完成。', error: false };
   } catch (error) {
-    state.notice = { message: error.name === 'AbortError' ? 'HUD 识别已取消；原录像和原报告仍保留。' : `HUD 识别未完成：${error.message} 原录像和原报告仍保留。`, error: error.name !== 'AbortError' };
+    const detail = error instanceof Error ? error.message : String(error || '未知错误');
+    state.notice = { message: error?.name === 'AbortError' ? '自动识别已取消；原录像和原报告仍保留。' : `自动识别未完成：${detail} 原录像和原报告仍保留。`, error: error?.name !== 'AbortError' };
   } finally {
     await setBusy(false); state.abort = null; render();
   }

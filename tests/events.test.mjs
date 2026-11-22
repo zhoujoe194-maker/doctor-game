@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   classifyHudLine, parseHudLines, HudFeedTracker, normalizeName, hudSampleTimes,
-  HUD_REJECT_REASONS, HUD_ROW_TTL_SECONDS, associateHudEvents
+  HUD_REJECT_REASONS, HUD_ROW_TTL_SECONDS, associateHudEvents, applyHudRefinement, mergeHudRescan
 } from '../src/events.js';
 import { recommend, DEFAULT_PROFILE } from '../src/analysis.js';
 
@@ -27,6 +27,15 @@ test('supports Chinese player names and exact normalized matching', () => {
   const chinese = classifyHudLine(split, '玩家甲');
   assert.equal(chinese.status, 'match'); assert.equal(chinese.context, 'kill'); assert.equal(chinese.rightText, '敌人 乙');
   assert.equal(classifyHudLine(line('玩家甲二号 幻影 敌人乙'), '玩家甲').status, 'reject');
+});
+
+test('does not treat a longer or edited name as the exact player identity', () => {
+  assert.equal(classifyHudLine({ text: 'AlexB Enemy', confidence: 95 }, 'Alex').status, 'reject');
+  for (const identity of ['AlexB', 'Alex1', 'Alexll', 'AlexBB']) {
+    const result = classifyHudLine(line(`${identity} Enemy`), 'Alex');
+    assert.equal(result.status, 'reject', identity);
+  }
+  assert.equal(classifyHudLine(line('Alex Enemy'), 'Alex').status, 'match');
 });
 
 test('rejects teammates, assists, missing names and names not at a participant edge', () => {
@@ -98,12 +107,6 @@ test('HUD sampling is low-frequency and bounded by duration', () => {
 });
 
 
-test('tolerates common trailing OCR noise without accepting a different name', () => {
-  const noisy = classifyHudLine(line('PlayerOnelll EnemyOne'), 'PlayerOne');
-  assert.equal(noisy.status, 'match'); assert.equal(noisy.context, 'kill');
-  assert.equal(classifyHudLine(line('PlayerOneTwo EnemyOne'), 'PlayerOne').status, 'reject');
-});
-
 test('trajectory proximity is navigation context only and does not review or copy evidence', () => {
   const hud = [{ id: 'hud-1', at: 3.2, firstSeen: 3.2, lastSeen: 4, start: 1, end: 4, kind: 'observation', context: 'kill', source: 'hud-ocr', reviewed: false, included: true, evidence: {} }];
   const trajectory = [{ id: 'event-1', start: 2.5, end: 3.6, kind: 'overshoot', context: 'duel', source: 'trajectory', reviewed: false, included: true, points: [], error: [10], }];
@@ -114,4 +117,51 @@ test('trajectory proximity is navigation context only and does not review or cop
   assert.equal(trajectory[0].reviewed, false);
   assert.equal(trajectory[0].kind, 'overshoot');
   assert.deepEqual(trajectory[0].points, []);
+});
+
+
+test('coarse episodes separated by more than the TTL stay separate during per-episode refinement', () => {
+  const row = observations('Alex', 'Alex Enemy');
+  const tracker = new HudFeedTracker();
+  tracker.observe(row, 2.6);
+  tracker.observe([], 12.6);
+  tracker.observe(row, 22.6);
+  tracker.observe(row, 42.6);
+  const events = tracker.finish(60);
+  assert.equal(events.length, 3);
+  assert.deepEqual(events.map(e => e.firstSeen), [2.6, 22.6, 42.6]);
+  // A late/refine scan for the first episode must update only that episode.
+  assert.equal(applyHudRefinement(events[0], row[0], 1.8), true);
+  assert.equal(events[0].firstSeen, 1.8);
+  assert.equal(events[0].at, 1.8);
+  assert.equal(events[0].lastSeen, 2.6);
+  assert.equal(events[1].firstSeen, 22.6);
+  assert.equal(events[1].at, 22.6);
+  assert.equal(events[2].firstSeen, 42.6);
+  // A non-matching refinement cannot touch an episode.
+  assert.equal(applyHudRefinement(events[0], observations('Alex', 'AlexOther Enemy')[0], 1.2), false);
+  assert.equal(events[0].firstSeen, 1.8);
+});
+
+
+test('a same-identity rescan preserves reviewed, included and user-corrected context', () => {
+  const old = { id: 'hud-1', source: 'hud-ocr', kind: 'observation', context: 'kill', reviewed: true, included: false, rowKey: 'left|alexenemy', firstSeen: 2, start: 0.5, end: 3.5, evidence: {} };
+  const candidate = { id: 'hud-9', source: 'hud-ocr', kind: 'observation', context: 'death', reviewed: false, included: true, rowKey: 'left|alexenemy', firstSeen: 2.2, start: 0.7, end: 3.7, evidence: {} };
+  const merged = mergeHudRescan({ hud: { identity: { name: 'Alex' } }, events: [old] }, { status: 'complete', events: [candidate], message: 'ok' }, 'Alex');
+  assert.equal(merged.events[0].reviewed, true);
+  assert.equal(merged.events[0].included, false);
+  assert.equal(merged.events[0].context, 'kill');
+  assert.equal(merged.hud.retained, 0);
+});
+
+test('a changed identity retains the old confirmed candidate instead of deleting it', () => {
+  const old = { id: 'hud-1', source: 'hud-ocr', kind: 'observation', context: 'kill', reviewed: true, included: true, rowKey: 'left|alexenemy', firstSeen: 2, start: 0.5, end: 3.5, evidence: { rowText: 'Alex Enemy' } };
+  const candidate = { id: 'hud-9', source: 'hud-ocr', kind: 'observation', context: 'kill', reviewed: false, included: true, rowKey: 'left|alexenemy', firstSeen: 2.2, start: 0.7, end: 3.7, evidence: {} };
+  const merged = mergeHudRescan({ hud: { identity: { name: 'Alex' } }, events: [old] }, { status: 'complete', events: [candidate], message: 'ok' }, 'AlexB');
+  const retained = merged.events.find(event => event.retained);
+  assert.ok(retained);
+  assert.equal(retained.reviewed, true);
+  assert.equal(retained.included, true);
+  assert.equal(retained.evidence.previousIdentity, 'Alex');
+  assert.equal(merged.hud.retainedConfirmed, 1);
 });

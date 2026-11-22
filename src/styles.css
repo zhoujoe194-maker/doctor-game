@@ -448,3 +448,6 @@ dialog::backdrop { background: var(--backdrop); }
 .hud-evidence strong { font-size: 12px; }
 .hud-evidence span { color: var(--muted); overflow-wrap: anywhere; }
 .kind-label.hud-source { background: var(--accent-soft); color: var(--accent); }
+.hud-evidence > summary { cursor: pointer; color: var(--accent); font-size: 12px; font-weight: 500; }
+.hud-evidence-body { display: grid; gap: 2px; margin-top: 3px; }
+.hud-evidence-body span { color: var(--muted); overflow-wrap: anywhere; }
