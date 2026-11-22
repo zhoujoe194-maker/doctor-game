@@ -61,7 +61,7 @@ npm run dist:win
 运行目录位于 `release/0.2.0-beta.1/doctorgame-win32-x64/`；安装器和 SHA-256
 位于同版本的 `installer/`。`npm run pack:win` 只生成运行目录。
 打包后的整个目录也作为 Steam depot 输入，见 [SteamPipe 准备说明](steam/README.md)。
-PR / 手动 Windows CI 仅上传测试 artifact，不创建 Release 或执行 Steam 上传。
+PR 与默认手动 Windows CI 只运行源码测试和 Electron smoke；只有手动触发并设置 `build_installer=true` 才构建、安装验证并上传 installer artifact，不创建 Release 或执行 Steam 上传。
 
 这个源码仓库不包含生成的运行包、依赖目录或玩家录像。项目介绍中的界面图片来自原型和明确标注的合成示例。
 

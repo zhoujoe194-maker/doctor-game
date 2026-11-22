@@ -29,7 +29,7 @@
   可从「对局记录 → 打开录像文件夹」查看实际位置。
 - 档案与报告保留在同一用户目录的本地存储中。备份时请先退出程序，再备份完整用户目录。
 - 安装新版本使用同一个安装位置。安装器不迁移或清空录像、档案、历史；卸载配置也保留应用数据。
-  Windows 安装、升级与卸载的实际测试结果以本次验收记录为准。
+  Windows 安装、升级与卸载的实际测试结果以本次验收记录/手动 `build_installer=true` 的 CI 结果为准；旧安装包不会自动替换。
 - 卸载在 Windows「已安装的应用」中选择 doctorgame。独立安装器与 Steam 版不可同时运行。
 
 ## 开发者构建
@@ -39,6 +39,17 @@
 ```sh
 pnpm run dist:win
 ```
+
+### CI 与手动打包
+
+- **PR 和默认手动触发**（`build_installer=false`）：只运行 `pnpm test`、`pnpm run test:ui` 与源码
+  `node tests/electron-smoke.mjs`（标签 `windows-source`），上传源码/UI/Electron evidence。
+  不构建安装器、不执行安装/升级/卸载，也不会上传不存在的 installer artifact。
+- **仅显式手动触发且 `build_installer=true`**：源码检查成功后，才构建未签名 NSIS、离线验证
+  Steam 映射、执行安装/导入/复盘/重启/升级/卸载回归，并上传 installer artifact 与验证证据。
+  仍不创建 Release、不登录 Steam、不上传 Steam、不执行发布。
+- 仓库/README 中已有的 beta.1 安装包链接是历史评审包；本流程不会自动替换为 latest，也不会
+  因普通 PR 或默认手动运行而重新打包。需要新的可分发安装包时由发布者另行明确要求。
 
 网络受限时，可把 `DOCTORGAME_ELECTRON_ZIP_DIR` 指向已下载且可信的 Electron
 release ZIP 所在目录；文件名必须与固定版本和目标架构一致。默认仍从官方地址下载。
