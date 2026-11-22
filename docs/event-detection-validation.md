@@ -66,9 +66,10 @@ SHA-256 `0bc9c904e5c2bfcbb27c2b0015b679fe7905fdac6b25bffdbc8126f5550a5249`。
 - `npm test`：c74c32f，26/26 通过。
 - `npm run test:ui`：c74c32f，24/24 通过（2.7 分钟）；含 5 项真实 OCR/媒体/复盘回归。
 - `DOCTORGAME_TEST_LABEL=hud-delivery node tests/electron-smoke.mjs`：c74c32f，正常 Electron 通过导入/复盘/持久化/重启/缩放。
+- `node tests/electron-hud-smoke.mjs`：负责人将独立交互验收固化为源码桌面回归，本机通过真实 OCR/三个候选/0.25×实际播放/确认排除/重扫/重启/文件 SHA 与档案保留，拒绝越界资源路径；无 HTTP(S) 请求。该次新生成合成文件的 OCR 阶段为 2676 ms，结果在 `artifacts/electron/hud-source/result.json`，已接入 Windows 源码 CI。
 - `git diff --check`：通过；`.agents` 与 `skills-lock.json` 对技能分支 diff 为空。
 - Python 校验 `assets/ocr/resource-manifest.json` 的 12 个文件：大小与 SHA-256 全部匹配。
-- Windows 源码 CI：推送后追加。安装器任务保持关闭。
+- Windows 源码 CI：以 [PR #4 的最终 CI 回执评论](https://github.com/zhoujoe194-maker/doctor-game/pull/4) 中的运行链接与 SHA 为准。包含上述真实桌面 OCR 回归；安装器任务保持关闭。
 
 ## 如何体验和尚未验证
 

@@ -43,6 +43,8 @@ jobs:
         env:
           DOCTORGAME_TEST_LABEL: windows-source
         run: node tests/electron-smoke.mjs
+      - name: Source Electron offline event recognition (no installer)
+        run: node tests/electron-hud-smoke.mjs
       - name: Upload source verification evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -53,6 +55,8 @@ jobs:
           path: |
             artifacts/electron/windows-source/result.json
             artifacts/electron/windows-source/*.png
+            artifacts/electron/hud-source/result.json
+            artifacts/electron/hud-source/*.png
             artifacts/beta/*.png
             artifacts/workspace-desktop.png
             artifacts/profile-desktop.png

@@ -111,6 +111,7 @@ npm test
 npx playwright install chromium
 npm run test:ui
 node tests/electron-smoke.mjs
+node tests/electron-hud-smoke.mjs
 python3 scripts/verify-steam.py
 ```
 
