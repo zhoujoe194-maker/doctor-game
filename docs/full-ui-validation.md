@@ -8,7 +8,9 @@
 - 本轮开始已 fetch 核实 `codex/player-experience-review` 的本地和远端均为
   `aab91be13ac54afb5af03ae8d78b737dcb4ea444`，工作区干净。继续现有草稿 PR，保留旧截图、录像和安装产物。
 - DSH 实现链：`ac78ae5` → `9ba7e3e` → `70db0b9` → `8ef1859` →
-  **`4ccf32cdb44a9c39576d4fedac7f7f780a983bfa`**（最终应用源码）。
+  `4ccf32cdb44a9c39576d4fedac7f7f780a983bfa`（视觉与报告边界验收），再经 Windows 键盘修复
+  **`2cf4ee414c0c61f91ccfa11215322c6a51c63a16`**（本次 UI 验收源码，布局不变）。
+  后续自动事件识别另见 [事件识别独立验收](event-detection-validation.md)，不要将这里的历史测试数量当作最新测试结果。
 - DSH 接单回执包含 cwd、分支、SHA、12 个项目 skills 及实际读取说明。
   `.agents` / `skills-lock.json` 与 `origin/codex/doctor-game-skills` diff 为空，无须额外安装。
 - 负责人独立更新三个 Electron 测试的导航/标题定位，保留原任务断言，增加 1280×720 控件首屏检查。
@@ -61,6 +63,7 @@
 
 另有打包版实际播放后暂停的[稳定视频帧截图](images/full-ui/after/report-stable.png)、
 [1280×720 复盘](images/full-ui/after/report-1280.png)、[零候选](images/full-ui/after/zero-candidates.png)、
+[录像库](images/full-ui/after/library.png)（打包版的一份真实导入合成文件）、
 [选窗](images/full-ui/after/source-dialog.png)、[最小窗口](images/full-ui/after/minimum-window.png)、
 [200% 缩放](images/full-ui/after/zoom-200.png)。原生播放器在刚 seek 时可能短暂显示加载动画；
 稳定帧截图通过实际播放和暂停取得，未编辑视频或截图。
@@ -87,13 +90,43 @@ macOS 14.4 arm64；Node 24.22.3（命令行），Electron 45.3.2；采用正常 
 加入 PATH。原始产物在 `artifacts/player-experience/full-ui-final/`、
 `artifacts/electron/full-ui-packaged/`、`artifacts/electron-recovery/full-ui-final/`。
 
+## Windows 首次 CI 失败及修复复核
+
+首次 [run 44991600013](https://github.com/zhoujoe194-maker/doctor-game/actions/runs/44991600013)
+在 `435054d` 上通过 11 算法和 17/18 UI，选窗键盘测试失败，因此没有生成安装包。
+原因是原生弹窗关闭先恢复焦点，用户 Tab 到导入后，异步 close handler 无条件又聚焦开始录制。
+已退回 DSH 在 `2cf4ee4` 修复：仅当焦点仍停留于已关闭弹窗或文档空白时补回真正触发元素，
+用户已移动到其他控件时不干预。保留原断言，增加迟到 close 与不同触发入口回归，没有加等待掩盖。
+
+负责人复核 `npx playwright test tests/ui/replay.spec.js`：3/3 通过；
+重新生成 `0.2.0-beta.1-review.2cf4ee4` Mac 评审 app，在正常 sandbox 的打包版中实际执行
+首页/记录页 → Enter 选窗 → Escape → Tab 导入 → 迟到 close → 焦点仍在导入，以及关闭按钮回焦，均通过。
+DSH 全套本机回归为 11 算法、19 UI；Windows 重跑结果以下方 CI 追加为准。
+
+## Windows CI 追加与分发停止点
+
+[run 44992570888](https://github.com/zhoujoe194-maker/doctor-game/actions/runs/44992570888)
+对应 `2cf4ee4`，已核实成功：11 项算法、19 项浏览器测试；安装器校验、安装、开始菜单启动（子进程 PATH 无外部 Node/pnpm）、
+导入/解码/跳转/确认/重启、测试升级保留档案/报告/录像、卸载后保留用户数据均通过；离线 Steam 清单通过。
+这属于 UI 版本历史验证，**不包含后来新增的自动击杀/死亡识别**。
+
+用户要求停止更新安装包时，该 CI 已完成，取消请求返回“Cannot cancel completed workflow”。
+随后 `2e5e941` 将 PR CI 改成源码测试；安装器任务只在手动 `build_installer=true` 时运行，默认关闭。
+停止点之后未再运行 pack/dist，也没有发布 Release 或上传 Steam。
+
+历史产物存档：[2cf4ee4 CI ZIP](https://github.com/zhoujoe194-maker/doctor-game/actions/runs/44992570888/artifacts/14742935992)，
+保留至 2026-12-22 14:19（北京时间，下载需 GitHub 登录）。不是当前自动识别版下载入口。
+其中 `doctorgame-0.2.0-beta.1-win-x64-setup.exe` 的 CI 实际校验 SHA-256：
+`1d6b7c63393944615701616bad2c130ea09d5c121df0438b83795b8acc0b042d`。
+ZIP artifact digest 为 `13cb06ba97672e433eeb2e4eb563881670eafa3448e0ef11c7488b95ef9db7c3`，不要与 exe 校验值混用。
+
 ## 如何体验与剩余事项
 
 Mac 本地评审应用：
-`release/0.2.0-beta.1-review.4ccf32c/doctorgame-darwin-arm64/doctorgame.app`。
+`release/0.2.0-beta.1-review.2cf4ee4/doctorgame-darwin-arm64/doctorgame.app`。
 使用单独 `--user-data-dir` 启动可以隔离体验数据；不需要开发服务器。
-Windows 评审安装包由本轮 PR CI 构建并验收，下载入口和 SHA-256 在 CI 完成后追加。
-当前 README 中的上一轮包仍是旧布局，不应当作本轮新版。
+以上 Mac app 是 UI 历史评审版。最新自动识别代码按 [事件识别验收](event-detection-validation.md) 从源码启动；
+依用户要求暂不更新安装包，历史 Windows 安装包不应当作最新自动识别版。
 
 - 本轮没有 Windows 游戏硬件。真实 VALORANT 窗口/全屏采集、Vanguard、长录制及 FPS/CPU/GPU 开销仍待实机。
 - Electron 窗口最小化/隐藏/恢复实际执行；系统托盘菜单未进行真实鼠标点击验收，跨页停止通过应用按钮。

@@ -14,10 +14,11 @@ doctorgame 希望把「灵敏度不顺手」拆成可回看的具体问题：击
 
 ![赛后复盘：Electron 导入的合成测试录像，非真实游戏](docs/images/full-ui/after/report-stable.png)
 
-最新[全界面重设计、六组前后截图与独立验收](docs/full-ui-validation.md)。
+最新[自动击杀/死亡候选与独立验收](docs/event-detection-validation.md)，以及
+[全界面重设计、六组前后截图与独立验收](docs/full-ui-validation.md)。
 保留上一轮[玩家流程审查与验收基线](docs/player-experience-validation.md)。
 此前 Windows beta.1 的[安装与升级验证基线](docs/desktop-beta-validation.md)继续保留；
-此前安装包不包含本轮深色主题，当前评审分支尚未合并。
+当前评审分支尚未合并；历史安装包不含最新自动事件识别。按用户要求暂不更新安装包，GitHub 继续同步源码。
 
 ## 核心流程
 
@@ -27,7 +28,7 @@ doctorgame 希望把「灵敏度不顺手」拆成可回看的具体问题：击
 
 Windows x64 测试者下载版本化的 `doctorgame-0.2.0-beta.1-win-x64-setup.exe`，
 双击安装，再从开始菜单启动；无需 Node.js、pnpm 或开发服务器。
-[下载本轮深色主题评审包 ZIP](https://github.com/zhoujoe194-maker/doctor-game/actions/runs/44924126720/artifacts/14715531252)
+[历史深色主题评审包 ZIP](https://github.com/zhoujoe194-maker/doctor-game/actions/runs/44924126720/artifacts/14715531252)
 （需登录 GitHub，保留至北京时间 2026-12-22；解压后运行其中的 setup.exe）。
 这是草稿 PR 的未签名评审构建，版本文件名沿用 beta.1，以本轮链接和校验值区分旧包。
 下载入口、SHA-256 和实际验收状态见
