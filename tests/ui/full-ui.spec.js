@@ -140,10 +140,21 @@ test('invalid stored reports degrade home and history without overwriting the re
   await expect(page.locator('#notice')).toContainText('报告的存档数据不完整');
   await expect(page.getByRole('heading', { name: '对局记录', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: '赛后复盘', exact: true })).toHaveCount(0);
+  // Unparseable JSON is the same unreadable-report boundary, not a missing report.
+  const corruptJSON = '{broken report json';
+  await page.evaluate(([k, value]) => localStorage.setItem(k, value), [key, corruptJSON]);
+  await page.reload();
+  await expect(page.getByRole('heading', { name: '继续上一局', exact: true })).toBeVisible();
+  await expect(page.locator('.session-problem')).toBeVisible();
+  expect(await page.evaluate(k => localStorage.getItem(k), key)).toBe(corruptJSON);
+  await page.getByRole('button', { name: '对局记录', exact: true }).click();
+  await expect(page.locator('.library-card')).toContainText('报告无法读取');
+  await page.locator('.library-card').click();
+  await expect(page.locator('#notice')).toContainText('报告的存档数据不完整');
   // Navigation and other valid reports still work.
   await page.locator('#load-demo').click();
   await expect(page.getByRole('heading', { name: '复盘示例', exact: true })).toBeVisible();
-  expect(await page.evaluate(k => localStorage.getItem(k), key)).toBe(invalidEvents);
+  expect(await page.evaluate(k => localStorage.getItem(k), key)).toBe(corruptJSON);
   const recordingAfter = await page.evaluate(async id => {
     const { storage } = await import('/src/storage.js');
     const item = (await storage.list()).find(entry => entry.id === id);

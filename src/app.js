@@ -1,5 +1,5 @@
 import { DEFAULT_PROFILE, HABIT_LABELS, SCENE_LABELS, validateProfile, recommend, MIN_REVIEWED } from './analysis.js';
-import { storage, saveProfile, loadReport, saveReport } from './storage.js';
+import { storage, saveProfile, saveReport } from './storage.js';
 import { beginCapture, analyzeVideo, inspectVideo, makeDemo } from './media.js';
 
 const $ = selector => document.querySelector(selector);
@@ -37,8 +37,11 @@ function inspectReportObject(report) {
   catch { return null; }
 }
 function readReportState(id) {
-  const report = loadReport(id);
-  if (!report) return { status: 'missing', report: null };
+  let raw;
+  try { raw = localStorage.getItem(`sight-report-${id}`); } catch { return { status: 'invalid', report: null }; }
+  if (raw === null) return { status: 'missing', report: null };
+  let report;
+  try { report = JSON.parse(raw); } catch { return { status: 'invalid', report: null }; }
   const inspected = inspectReportObject(report);
   return inspected ? { status: 'valid', ...inspected } : { status: 'invalid', report };
 }
