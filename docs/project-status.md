@@ -9,7 +9,8 @@
 | 已验收应用交付 | `f3ed51f2868dade6869f1fdf8fb480e9568e6ed5` |
 | 应用实现提交 | `01610c1a9983a06fcaebf438e13bc31a17de3b49` |
 | Windows 源码 CI | [run 45121052543](https://github.com/zhoujoe194-maker/doctor-game/actions/runs/45121052543)：27 算法、24 UI、普通与 OCR Electron 流程通过；严格 3 个合成 HUD 事件；installer skipped |
-| 统一 main | 由协调窗口在独立验收后整合；实际 main SHA、PR 合并状态以 GitHub 回执为准。新窗口先核实 `origin/main` 是否包含 `f3ed51f`，见 [start-here](start-here.md) |
+| 协作配置 | `6bc705d034832fdcdafe5b597c1f31acadcf080a`：多模型入口、Issue/PR 模板、独立测试端口；负责人验证见 [validation](validation.md) |
+| 统一 main | [PR #4 整合记录](https://github.com/zhoujoe194-maker/doctor-game/pull/4)；[协作总入口 #7](https://github.com/zhoujoe194-maker/doctor-game/issues/7) 保存最终 main SHA、最新 CI 和待认领任务。新窗口核实 `origin/main` 包含 `6bc705d`，见 [start-here](start-here.md) |
 | 分发 | 本轮不打包、不更新安装包、不发 Release、不上传 Steam |
 
 源码测试数量以交付验收为准：**27 项算法/纯函数测试 + 24 项浏览器 UI 测试**。协作测试端口配置另增独立单元测试，属当前 harness 检查，不改变原应用的 27/24 验收事实。
@@ -44,6 +45,14 @@
 ## 安装包与发布边界
 
 此前 beta.1 安装包是历史评审产物，**不含后续的自动击杀/死亡识别与最新 UI 修正**，不可用于判断当前源码能力。用户尚未要求在最新源码上重新打包；本轮不更新安装包、Release 或 Steam。未来打包必须单独获得明确请求，并重新验证安装后的 OCR 资源、数据保留和 Windows 运行。
+
+## 可认领的后续任务
+
+任务状态以 [协作总入口 #7](https://github.com/zhoujoe194-maker/doctor-game/issues/7) 和各 Issue 的认领评论为准；下列任务仅准备范围与验收条件，尚未派发实现。
+
+- [#8 真实录像事件评估工具](https://github.com/zhoujoe194-maker/doctor-game/issues/8)：标注、匹配规则和离线统计，真实录像需先取得同意。
+- [#9 长录像分析基线](https://github.com/zhoujoe194-maker/doctor-game/issues/9)：阶段耗时、内存、取消恢复，先测量再决定优化。
+- [#10 Windows 游戏实机验收](https://github.com/zhoujoe194-maker/doctor-game/issues/10)：需要实际游戏硬件，不能用 runner 或合成采集代替。
 
 ## 准确性的底线
 

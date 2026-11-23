@@ -7,14 +7,16 @@
 
 统一协作基线是 **`origin/main`**，不是任何旧评审分支、旧安装包或本地长期工作区。
 
-本轮已由用户授权把已验收源码整合到 main；实际 GitHub merge、PR 状态和最终
-main SHA 由协调窗口（Codex）执行并确认。当前已验收应用交付为：
+本轮已由用户授权把已验收源码整合到 main。整合记录见
+[PR #4](https://github.com/zhoujoe194-maker/doctor-game/pull/4)，最终 main SHA 与任务认领见
+[协作总入口 #7](https://github.com/zhoujoe194-maker/doctor-game/issues/7)。源码来源：
 
 - 应用交付：`f3ed51f2868dade6869f1fdf8fb480e9568e6ed5`
 - 应用实现：`01610c1a9983a06fcaebf438e13bc31a17de3b49`
 - Windows 源码 CI：[run 45121052543](https://github.com/zhoujoe194-maker/doctor-game/actions/runs/45121052543)
   （27 算法、24 UI、普通与 OCR Electron 流程通过；严格 3 个合成 HUD 事件；installer skipped）
-- 统一主线由协调窗口合并后确认；不要把“已授权合并”误读为“GitHub 已经合并”。
+- 协作配置：`6bc705d034832fdcdafe5b597c1f31acadcf080a`（入口、模板、端口隔离），及后续负责人验收记录。
+- 开工以 fetch 后的实际 main 为准；历史证据不能代替当前任务验证。
 
 ## 2. 每次新窗口先做这些
 
@@ -26,7 +28,7 @@ git status --short
 git fetch origin
 git rev-parse HEAD
 git rev-parse origin/main
-git merge-base --is-ancestor f3ed51f2868dade6869f1fdf8fb480e9568e6ed5 origin/main && echo "main contains accepted delivery" || echo "main baseline not ready"
+git merge-base --is-ancestor 6bc705d034832fdcdafe5b597c1f31acadcf080a origin/main && echo "main contains collaboration baseline" || echo "main baseline not ready"
 ```
 
 然后读取：
@@ -69,7 +71,7 @@ docs/project-status.md、docs/collaboration.md，并按任务需要阅读相关 
 
 工作目录：<独立 clone 或 worktree 的路径>；不要使用共享 dirty 目录。
 先执行 git fetch origin，报告 cwd、branch、HEAD、git status --short、origin/main SHA。
-确认 origin/main 已包含已验收交付 f3ed51f2868dade6869f1fdf8fb480e9568e6ed5；
+确认 origin/main 已包含协作交付 6bc705d034832fdcdafe5b597c1f31acadcf080a（含已验收应用 f3ed51f）；
 如果未包含，停止并请协调窗口核对整合进度，不要从旧 main 开始。
 
 基线 SHA：<git rev-parse origin/main>。

@@ -40,7 +40,7 @@ Windows x64 分发目录已成功生成。打包只包含运行必需代码，�
 
 合成 8 秒 HUD 视频在测试中完成 23 次 OCR 扫描、产生 3 个候选，OCR 阶段约 2.5 秒；这只验证本机离线管线，不是真实游戏识别准确率。重扫失败/身份改变保留原报告与旧确认的工程回归、精确参与者匹配、重扫 ID 唯一性/身份往返恢复确认和超 8 秒 episode 细读回归也已加入。DSH 本机 plain Electron 仍受环境限制；负责人 normal-sandbox Electron 已实跑真实 OCR（3 个 kill/death/kill、无外部请求）且 source smoke 通过。真实游戏 HUD 布局/缩放/语言/皮肤、长局吞吐、行级 precision/recall 和时间边界误差仍未验证。原始录像、旧档案/报告和存储标识未被迁移或删除；HUD 自动候选确认后仍不是量化样本。
 
-## 2026-11-23 协作测试端口隔离（本轮实际）
+## 2026-11-23 协作测试端口隔离（DSH 实现回执）
 
 | 命令 / 检查 | 实际结果 |
 | --- | --- |
@@ -52,3 +52,22 @@ Windows x64 分发目录已成功生成。打包只包含运行必需代码，�
 | 配置一致性检查 | `baseURL`、`webServer.url`、`webServer.env.PORT` 均为 4271；`reuseExistingServer=false` |
 
 这只是测试 harness 的隔离验证，不改变生产应用的默认 4173 开发端口；也不代表安装包、Windows source CI 或 Electron 历史结果重新通过。Windows source CI 的最新已验收回执见顶部索引；本轮没有打包。
+
+## 2026-11-23 协作基线独立验收（Codex）
+
+复核 DSH 冻结提交 `6bc705d034832fdcdafe5b597c1f31acadcf080a`，独立运行并读取以下结果。应用代码和生产安全设置没有因协作准备改变；本轮修改的是文档、任务模板和 UI 测试配置。
+
+| 命令 / 检查 | 负责人实际结果 |
+| --- | --- |
+| `npm test` | 30/30 通过；27 项应用规则 + 3 项端口校验 |
+| `DOCTORGAME_UI_PORT=4281 npm run test:ui` | 24/24 通过，2.6 分钟；含真实编码视频与离线 OCR、复盘和重启保存回归 |
+| 独立 HTTP 服务占用 4283 后执行 `DOCTORGAME_UI_PORT=4283 npx playwright test tests/ui/full-ui.spec.js:5` | 退出 1，明确提示地址已被使用，没有连接该服务执行用例 |
+| 保持 4283 占用，执行 `DOCTORGAME_UI_PORT=4284 npx playwright test tests/ui/full-ui.spec.js:5` | 1/1 通过；4283 的原服务仍返回独立标记，未被停止或替换 |
+| `DOCTORGAME_UI_PORT=abc npx playwright test --list` | 退出 1，提示必须是 1024–65535 的整数 |
+| `npx --offline skills@1.9.0 list -a codex` | 退出 0，发现 12 项项目 skills |
+| skills/锁检查 | 12 项名称、commit/hash 格式一致；`.agents/skills/` 与 `skills-lock.json` 对 `origin/codex/doctor-game-skills` 差异为空 |
+| 文档 / 模板 | 协作入口的本地链接 0 断链；Issue 与 CI YAML 经 Ruby YAML 解析通过；`git diff --check` 通过 |
+
+端口探测原始输出保存在本机忽略的 `artifacts/collaboration-port-probe.json`。独立复核还修正了任务分支示例：必须显式从 `origin/main` 创建，避免继承窗口当前旧分支。
+
+当前源码的 Windows CI 在推送后由 GitHub 运行，最终回执统一记在 [PR #4](https://github.com/zhoujoe194-maker/doctor-game/pull/4) 与 [协作总入口 #7](https://github.com/zhoujoe194-maker/doctor-game/issues/7)，不把上方历史应用 CI 当作本轮新跑结果。installer 保持显式手动门控，本轮不触发。真实 Windows 游戏采集和性能仍待实机验证。

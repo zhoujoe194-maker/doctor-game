@@ -16,6 +16,10 @@ doctorgame 希望把「灵敏度不顺手」拆成可回看的具体问题：击
 不要在共享 dirty 目录同时写；一个窗口一个独立 worktree 和
 `codex/<issue>-<scope>` 分支。Issue 是协调入口，不是原子锁。
 
+[协作总入口与待认领任务 #7](https://github.com/zhoujoe194-maker/doctor-game/issues/7)
+记录统一 main SHA、负责人和交接状态。Codex、Claude、Gemini、DSH 共用
+`AGENTS.md` 与项目内 12 项 skills；Claude/Gemini 根入口只转到同一套说明。
+
 ## 界面预览
 
 ![doctorgame：顶部导航与上一局画面主导的 Electron 评审版](docs/images/full-ui/after/returning.png)

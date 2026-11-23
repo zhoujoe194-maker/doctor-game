@@ -56,10 +56,10 @@
 git fetch origin
 git rev-parse origin/main
 git status --short
-git switch -c codex/<issue>-<scope>
+git switch -c codex/<issue>-<scope> origin/main
 ```
 
-- base SHA 记录在 Issue 和交付回执中。
+- 仅在自己的干净目录运行上述切分支命令；把 `<issue>-<scope>` 替换为任务编号和范围。base SHA 记录在 Issue 和交付回执中。显式指定 `origin/main`，避免意外从当前旧分支创建任务。
 - 不从旧 main、旧评审分支或过期本地分支盲开始；先核实 main 已包含已验收交付，见 [start-here](start-here.md)。
 - 不用 force-push 覆盖他人分支；不在共享主线上直接提交。
 - 只有协调窗口负责主线集成；其他窗口不擅自 merge main、改 README 入口或发布。
