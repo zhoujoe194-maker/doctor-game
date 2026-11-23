@@ -46,6 +46,18 @@ try {
   await (await chooser).setFiles(fixture);
   await expect(page.getByRole('heading', { name: '赛后复盘', exact: true })).toBeVisible({ timeout: 180000 });
   const initial = await saved();
+  const recordingFile = path.join(dataDir, 'recordings', initial.item.id + '.webm');
+  // Save diagnostic evidence before assertions, so a Windows mismatch remains
+  // inspectable instead of leaving only a green/failed flag or screenshot.
+  await writeFile(path.join(output, 'initial-report.json'), JSON.stringify({
+    fixtureSHA256: fixtureHash,
+    recordingSHA256: await digest(recordingFile),
+    duration: initial.report.duration,
+    identitySnapshot: initial.report.hud.identity,
+    hud: initial.report.hud,
+    events: initial.report.events,
+    report: initial.report
+  }, null, 2));
   assert.equal(initial.report.hud.status, 'complete');
   const events = initial.report.events.filter(event => event.source === 'hud-ocr').sort((a, b) => a.firstSeen - b.firstSeen);
   // The fixture is intentionally one kill, one death, one kill. PNG/OCR drift
@@ -67,16 +79,6 @@ try {
     assert.ok(event.firstSeen >= 0 && event.lastSeen >= event.firstSeen && event.end >= event.start);
   }
   assert.equal(initial.item.playerName, 'PlayerOne');
-  const recordingFile = path.join(dataDir, 'recordings', initial.item.id + '.webm');
-  await writeFile(path.join(output, 'initial-report.json'), JSON.stringify({
-    fixtureSHA256: fixtureHash,
-    recordingSHA256: await digest(recordingFile),
-    duration: initial.report.duration,
-    identitySnapshot: initial.report.hud.identity,
-    hud: initial.report.hud,
-    events,
-    report: initial.report
-  }, null, 2));
   const deathIndex = initial.report.events.findIndex(event => event.context === 'death');
   await page.locator(`[data-event="${deathIndex}"]`).click();
   await expect.poll(() => page.locator('#replay').evaluate(v => v.currentTime)).toBeCloseTo(initial.report.events[deathIndex].start, 1);

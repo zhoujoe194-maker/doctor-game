@@ -1,13 +1,14 @@
 # 整段录像自动事件识别 · 独立验收
 
-2026-11-22，负责人 Codex；DSH 实现。任务 [#6](https://github.com/zhoujoe194-maker/doctor-game/issues/6)，
+2026-11-22 首轮，2026-11-23 追加 Windows 去重验收；负责人 Codex，DSH 实现。任务 [#6](https://github.com/zhoujoe194-maker/doctor-game/issues/6)，
 草稿 [PR #4](https://github.com/zhoujoe194-maker/doctor-game/pull/4)，未合并。
 
 ## 交付范围
 
 基线应用 `2cf4ee414c0c61f91ccfa11215322c6a51c63a16`，停止自动打包 `2e5e941`。
 DSH 实现 `09604fc` → 独立验收退回修复 `24467f6` → 编号边界修复
-**`c74c32f77f17d097e078cfc93b37ecde420c9d3a`**。
+`c74c32f77f17d097e078cfc93b37ecde420c9d3a`；Windows 独立复核后追加参与者去重修复
+**`01610c1a9983a06fcaebf438e13bc31a17de3b49`**。
 保留前轮尚未提交的 UI 验收文档、录像库截图及所有旧安装产物；没有重置用户数据。
 
 原版本已经对完整录像执行轮廓/背景运动抽样，自动生成瞄准候选，不要求用户先裁剪。
@@ -72,6 +73,22 @@ SHA-256 `0bc9c904e5c2bfcbb27c2b0015b679fe7905fdac6b25bffdbc8126f5550a5249`。
 - Windows 源码 CI：以 [PR #4 的最终 CI 回执评论](https://github.com/zhoujoe194-maker/doctor-game/pull/4) 中的运行链接与 SHA 为准。包含上述真实桌面 OCR 回归；安装器任务保持关闭。
 
 ## 如何体验和尚未验证
+
+### 2026-11-23 Windows 差异复核
+
+`c5049b7` 的 [Windows 源码 CI](https://github.com/zhoujoe194-maker/doctor-game/actions/runs/45011980195)
+通过 26 算法、24 UI（4.4 分钟）、两个实际 Electron 流程，安装器任务为 **skipped**。
+但负责人读取日志和下载证据后发现：桌面合成的三次事件产生了 **4 个候选**（28 次 OCR，6092 ms），
+当时 smoke 只要求存在 kill/death，未拦住重复。这一轮绿色 CI 不能当作去重正确的证据。
+
+负责人另复现：同一行的中间图标被 OCR 成 `EM`/`I`，整行签名变化会产生重复事件。
+DSH 在 `01610c1` 改成依据词框分离两端参与者，中间图标只保留为原始证据、不进入去重 key；
+精确匹配玩家名不放宽，不同对手仍独立，不能分离边界则拒绝。
+桌面验收收紧为三个事件按顺序/相对时段一对一匹配；在断言前保存完整报告供 Windows 失败时追查。
+负责人在 `01610c1` 复跑 `npm test`（27/27）、`npm run test:ui`（24/24，2.7 分钟）与
+`node tests/electron-hud-smoke.mjs`（通过，3 个候选、23 次 OCR、2887 ms）。完整报告的参与者分别为
+PlayerOne/EnemyOne、EnemyTwo/PlayerOne、PlayerOne/EnemyThree；中间图标 EM/I 独立保存，不进入 key。
+后续最终运行的 SHA 与结果见 PR #4 最终回执评论；本轮仍不生成安装包。
 
 当前分支 `codex/player-experience-review`，已有依赖的本机在项目目录运行 `npm start`。
 隔离体验可运行 `npm start -- --user-data-dir=/tmp/doctorgame-preview-events`（macOS 示例）。
