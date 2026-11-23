@@ -33,12 +33,22 @@ export const storage = {
   async finish(id, metadata) {
     if (window.doctorgame) return window.doctorgame.finish(id, metadata);
     const old = await transaction('recordings', 'readonly', s => s.get(id));
-    const item = { ...old, ...metadata, id, status: 'ready' };
+    const item = { ...old, ...metadata, id, status: metadata.incomplete ? 'incomplete' : 'ready' };
     await transaction('recordings', 'readwrite', s => s.put(item)); indices.delete(id); return item;
   },
   async list() {
     if (window.doctorgame) return window.doctorgame.list();
-    return (await transaction('recordings', 'readonly', s => s.getAll())).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const items = await transaction('recordings', 'readonly', s => s.getAll());
+    // Metadata can be stale or absent (begin() never wrote bytes, an interrupted
+    // capture never reached finish()). Report the real chunk size as a runtime
+    // field; never rewrite the stored metadata or chunks.
+    const sized = await Promise.all(items.map(async item => {
+      try {
+        const chunks = await transaction('chunks', 'readonly', s => s.getAll(IDBKeyRange.bound([item.id, 0], [item.id, Number.MAX_SAFE_INTEGER])));
+        return { ...item, actualBytes: chunks.reduce((sum, chunk) => sum + (chunk.blob?.size || 0), 0) };
+      } catch { return { ...item, actualBytes: null }; }
+    }));
+    return sized.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   },
   async url(item) {
     if (window.doctorgame) return `doctorgame-video://capture/${item.id}`;

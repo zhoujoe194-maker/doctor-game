@@ -1,0 +1,514 @@
+// Local HUD kill-feed detection. This is an observation layer, not a trained
+// combat detector and never a quantitative sample by itself.
+//
+// The OCR is deliberately low-frequency: a 1 Hz scan of a fixed VALORANT
+// kill-feed region, followed by a short finer pass around new rows. It never
+// OCRs every analysis frame and never reads game memory or sends video anywhere.
+import { HUD_PRE_ROLL_SECONDS, HUD_POST_ROLL_SECONDS } from './events-shared.js';
+
+export { HUD_PRE_ROLL_SECONDS, HUD_POST_ROLL_SECONDS } from './events-shared.js';
+
+export const HUD_DETECTOR_VERSION = 'hud-feed-ocr-0.1';
+export const HUD_MODEL = 'tesseract.js@7.0.0 · eng+chi_sim · 4.0.0_best_int';
+export const HUD_SAMPLE_SECONDS = 1;
+export const HUD_REFINE_WINDOW_SECONDS = 1.2;
+export const HUD_REFINE_STEP_SECONDS = 0.4;
+export const HUD_ROW_TTL_SECONDS = 8;
+export const HUD_MIN_OCR_CONFIDENCE = 55;
+// Normalized coordinates of the right-top kill-feed area. Intentionally broad
+// enough for 16:9, 16:10 and letterboxed captures; crop is upscaled for OCR.
+export const HUD_REGION = Object.freeze({ x: 0.68, y: 0.07, width: 0.31, height: 0.42 });
+export const HUD_REJECT_REASONS = Object.freeze({
+  NAME_MISSING: 'name-missing',
+  NAME_MIDDLE: 'name-not-at-edge',
+  NAME_BOTH_SIDES: 'name-on-both-sides',
+  NO_OPPONENT: 'no-opponent',
+  LOW_CONFIDENCE: 'low-confidence',
+  ASSIST_TEXT: 'assist-or-extra-text',
+  LINE_TOO_SMALL: 'line-too-small',
+  GEOMETRY_MISSING: 'geometry-missing',
+  AMBIGUOUS_OPPONENT: 'ambiguous-opponent'
+});
+
+export function normalizeName(value) {
+  return String(value ?? '').normalize('NFKC').toLocaleLowerCase('en-US')
+    .replace(/[\s\u200b-\u200d\uFEFF]+/g, '')
+    .replace(/[^\p{L}\p{N}]/gu, '');
+}
+
+function lineWords(line) {
+  if (Array.isArray(line.words) && line.words.length) return line.words.map(word => ({ text: String(word.text ?? ''), confidence: Number(word.confidence ?? line.confidence ?? 0), bbox: word.bbox }));
+  return String(line.text ?? '').trim().split(/\s+/).filter(Boolean).map(text => ({ text, confidence: Number(line.confidence ?? 0), bbox: null }));
+}
+
+function sequenceMatch(values, target, fromStart) {
+  if (!values.length || !target) return 0;
+  if (fromStart) {
+    for (let count = 1; count <= values.length; count++) {
+      if (values.slice(0, count).join('') === target) return count;
+    }
+  } else {
+    for (let count = 1; count <= values.length; count++) {
+      if (values.slice(-count).join('') === target) return count;
+    }
+  }
+  return 0;
+}
+function playerUsesCjk(name) { return /[\u3400-\u9fff\uf900-\ufaff]/.test(String(name || '')); }
+
+// Keep only the contiguous text block at the opposite edge. HUD weapon/ability
+// icons are not participant text: OCR sometimes reads them as EM/I/[] between
+// the two names. Geometry (a larger inter-word gap) separates that middle icon
+// from a multi-word or Chinese name; without bbox evidence we refuse to guess.
+function edgeSpan(words, side, gapLimit) {
+  const ordered = side === 'left' ? words : [...words].reverse();
+  const span = [];
+  for (const word of ordered) {
+    const box = word?.bbox;
+    if (!box || !Number.isFinite(box.x0) || !Number.isFinite(box.x1)) return null;
+    if (!span.length) { span.push(word); continue; }
+    const previous = span.at(-1);
+    const gap = side === 'left' ? box.x0 - previous.bbox.x1 : previous.bbox.x0 - box.x1;
+    if (gap > gapLimit) break;
+    span.push(word);
+  }
+  return side === 'left' ? span : span.reverse();
+}
+function medianWordHeight(words) {
+  const heights = words.map(word => Number(word?.bbox?.y1) - Number(word?.bbox?.y0)).filter(value => Number.isFinite(value) && value > 0);
+  if (!heights.length) return 0;
+  heights.sort((a, b) => a - b);
+  return heights[Math.floor(heights.length / 2)];
+}
+
+// A kill-feed row is a ranked statement: killer on the left, victim on the
+// right. Matching only at an edge prevents a teammate, an assist icon, or a
+// player name appearing in the middle of an unrelated string from being counted.
+export function classifyHudLine(line, playerName, { minConfidence = HUD_MIN_OCR_CONFIDENCE } = {}) {
+  const identity = String(playerName ?? '').trim();
+  const identityNorm = normalizeName(identity);
+  if (identityNorm.length < 2) return { status: 'reject', reason: HUD_REJECT_REASONS.NAME_MISSING };
+  const text = String(line?.text ?? '').replace(/\s+/g, ' ').trim();
+  if (!text) return { status: 'reject', reason: HUD_REJECT_REASONS.LINE_TOO_SMALL };
+  if (/\b(?:assist|assists|assisting|助攻)\b/i.test(text)) return { status: 'reject', reason: HUD_REJECT_REASONS.ASSIST_TEXT };
+  const bboxHeight = Number(line?.bbox?.y1) - Number(line?.bbox?.y0);
+  if (Number.isFinite(bboxHeight) && bboxHeight > 0 && (bboxHeight < 8 || bboxHeight > 220)) return { status: 'reject', reason: HUD_REJECT_REASONS.LINE_TOO_SMALL };
+  const words = lineWords(line);
+  if (words.length < 2) return { status: 'reject', reason: HUD_REJECT_REASONS.NO_OPPONENT };
+  const values = words.map(word => normalizeName(word.text));
+  const confidence = Number(line?.confidence ?? words.reduce((sum, word) => sum + word.confidence, 0) / Math.max(1, words.length));
+  if (!Number.isFinite(confidence) || confidence < minConfidence) return { status: 'reject', reason: HUD_REJECT_REASONS.LOW_CONFIDENCE, confidence };
+  const prefix = sequenceMatch(values, identityNorm, true);
+  const suffix = sequenceMatch(values, identityNorm, false);
+  const both = Boolean(prefix && suffix && prefix + suffix > values.length);
+  const left = prefix > 0 && prefix < values.length ? values.slice(0, prefix).join('') : '';
+  const right = suffix > 0 && suffix < values.length ? values.slice(-suffix).join('') : '';
+  const side = prefix && !suffix ? 'left' : suffix && !prefix ? 'right' : null;
+  if (both || (prefix && suffix)) return { status: 'reject', reason: HUD_REJECT_REASONS.NAME_BOTH_SIDES, confidence };
+  if (!side) {
+    const middle = values.join('').includes(identityNorm);
+    return { status: 'reject', reason: middle ? HUD_REJECT_REASONS.NAME_MIDDLE : HUD_REJECT_REASONS.NAME_MISSING, confidence };
+  }
+  const lineHeight = medianWordHeight(words);
+  if (!lineHeight) return { status: 'reject', reason: HUD_REJECT_REASONS.GEOMETRY_MISSING, confidence };
+  const gapLimit = Math.max(3, Math.min(32, lineHeight * 0.2));
+  let opponentWords, leftWords, rightWords;
+  if (side === 'left') {
+    opponentWords = edgeSpan(words.slice(prefix), 'right', gapLimit);
+    leftWords = words.slice(0, prefix);
+    rightWords = opponentWords;
+    if (!opponentWords) return { status: 'reject', reason: HUD_REJECT_REASONS.AMBIGUOUS_OPPONENT, confidence };
+  } else {
+    opponentWords = edgeSpan(words.slice(0, words.length - suffix), 'left', gapLimit);
+    leftWords = opponentWords;
+    rightWords = words.slice(-suffix);
+    if (!opponentWords) return { status: 'reject', reason: HUD_REJECT_REASONS.AMBIGUOUS_OPPONENT, confidence };
+  }
+  const opponentNorm = normalizeName(opponentWords.map(word => word.text).join(''));
+  if (!opponentNorm) return { status: 'reject', reason: HUD_REJECT_REASONS.NO_OPPONENT, confidence };
+  const middleWords = words.slice(leftWords.length, words.length - rightWords.length);
+  return {
+    status: 'match', side, confidence: Math.round(confidence) / 100, ocrConfidence: Math.round(confidence),
+    context: side === 'left' ? 'kill' : 'death',
+    // Identity + opposite participant only. Middle icon OCR noise is evidence,
+    // not identity or dedupe identity.
+    rowKey: `${side}|${identityNorm}|${opponentNorm}`,
+    lineText: text,
+    leftText: leftWords.map(word => word.text).join(' '),
+    rightText: rightWords.map(word => word.text).join(' '),
+    otherText: opponentWords.map(word => word.text).join(' '),
+    middleText: middleWords.map(word => word.text).join(' '),
+    matchedName: identity,
+    words: words.map(word => word.text),
+    wordBoxes: words.map(word => ({ text: word.text, bbox: word.bbox }))
+  };
+}
+
+export function parseHudLines(lines, playerName, options = {}) {
+  const observations = [], rejected = {};
+  for (const line of lines || []) {
+    const result = classifyHudLine(line, playerName, options);
+    if (result.status === 'match') observations.push(result);
+    else rejected[result.reason] = (rejected[result.reason] || 0) + 1;
+  }
+  // Duplicate lines in one OCR result describe one row, not multiple kills.
+  const unique = new Map();
+  for (const observation of observations) if (!unique.has(observation.rowKey)) unique.set(observation.rowKey, observation);
+  return { observations: [...unique.values()], rejected };
+}
+
+export function flattenOcrLines(blocks) {
+  const lines = [];
+  for (const block of blocks || []) for (const paragraph of block.paragraphs || []) for (const line of paragraph.lines || []) lines.push(line);
+  return lines;
+}
+
+export function parseHudPayload(data, playerName, options = {}) {
+  const lines = flattenOcrLines(data?.blocks);
+  if (!lines.length && data?.text) {
+    return parseHudLines(String(data.text).split(/\r?\n/).filter(Boolean).map(text => ({ text, confidence: data.confidence, words: [] })), playerName, options);
+  }
+  return parseHudLines(lines, playerName, options);
+}
+
+// Refine one already-identified episode. This is deliberately not a global
+// tracker operation: a late/refine scan must never revive or merge another
+// same-name episode that expired from the active coarse-scan map.
+export function applyHudRefinement(event, observation, t) {
+  if (!event || !observation || observation.rowKey !== event.rowKey) return false;
+  event.firstSeen = Math.min(event.firstSeen, t);
+  event.lastSeen = Math.max(event.lastSeen, t);
+  event.at = event.firstSeen;
+  event.scanCount++;
+  event.confidence = Math.max(event.confidence || 0, observation.confidence || 0);
+  event.ocrConfidence = Math.max(event.ocrConfidence || 0, observation.ocrConfidence || 0);
+  event.evidence.firstSeen = event.firstSeen;
+  event.evidence.lastSeen = event.lastSeen;
+  event.evidence.scanCount = event.scanCount;
+  return true;
+}
+
+export class HudFeedTracker {
+  constructor({ ttl = HUD_ROW_TTL_SECONDS, preRoll = HUD_PRE_ROLL_SECONDS, postRoll = HUD_POST_ROLL_SECONDS } = {}) {
+    this.ttl = ttl; this.preRoll = preRoll; this.postRoll = postRoll;
+    this.active = new Map(); this.events = [];
+    this.sequence = 0;
+  }
+  expire(t) {
+    for (const [key, event] of this.active) if (t - event.lastSeen > this.ttl) this.active.delete(key);
+  }
+  observe(observations, t, { allowCreate = true } = {}) {
+    this.expire(t);
+    const seen = new Set();
+    let created = 0, matched = 0;
+    for (const observation of observations || []) {
+      if (!observation?.rowKey || seen.has(observation.rowKey)) continue;
+      seen.add(observation.rowKey);
+      let event = this.active.get(observation.rowKey);
+      if (event) {
+        event.firstSeen = Math.min(event.firstSeen, t);
+        event.lastSeen = Math.max(event.lastSeen, t);
+        event.at = event.firstSeen;
+        event.lastScan = t;
+        event.scanCount++;
+        event.confidence = Math.max(event.confidence, observation.confidence || 0);
+        event.ocrConfidence = Math.max(event.ocrConfidence || 0, observation.ocrConfidence || 0);
+        matched++;
+      } else if (allowCreate) {
+        event = {
+          id: `hud-${++this.sequence}`,
+          at: t, firstSeen: t, lastSeen: t, lastScan: t,
+          start: Math.max(0, t - this.preRoll), end: Math.min(999999, t + this.postRoll),
+          kind: 'observation', context: observation.context,
+          source: 'hud-ocr', reviewed: false, included: true,
+          confidence: observation.confidence || 0, ocrConfidence: observation.ocrConfidence || 0,
+          scanCount: 1,
+          points: [], error: [], corrections: null, acquisitionMs: null,
+          evidence: {
+            detector: HUD_DETECTOR_VERSION, model: HUD_MODEL,
+            identity: observation.matchedName || '',
+            participantSide: observation.side, rowText: observation.lineText,
+            matchedName: observation.matchedName || '', otherText: observation.otherText,
+            leftText: observation.leftText || '', rightText: observation.rightText || '', middleText: observation.middleText || '',
+            rowsInSample: observations.length, firstSeen: t, lastSeen: t,
+            region: { ...HUD_REGION }
+          },
+          rowKey: observation.rowKey
+        };
+        this.active.set(observation.rowKey, event);
+        this.events.push(event);
+        created++;
+      }
+    }
+    return { created, matched };
+  }
+  finish(duration) {
+    for (const event of this.events) {
+      event.at = event.firstSeen;
+      event.start = Math.max(0, event.firstSeen - this.preRoll);
+      event.end = Math.min(duration, event.lastSeen + this.postRoll);
+      event.evidence.firstSeen = event.firstSeen;
+      event.evidence.lastSeen = event.lastSeen;
+      event.evidence.scanCount = event.scanCount;
+    }
+    this.events.sort((a, b) => a.firstSeen - b.firstSeen);
+    this.events.forEach((event, index) => { event.id = `hud-${index + 1}`; });
+    return this.events;
+  }
+}
+
+// Time proximity is context for navigation only. It never copies trajectory
+// points, marks the trajectory reviewed, or turns an observation into evidence.
+export function associateHudEvents(hudEvents, trajectoryEvents, windowSeconds = 3) {
+  const trajectory = (trajectoryEvents || []).filter(event => event && event.id && Number.isFinite(event.start) && Number.isFinite(event.end));
+  for (const event of hudEvents || []) {
+    let best = null;
+    for (const candidate of trajectory) {
+      if (candidate.start <= event.at + windowSeconds && candidate.end >= event.at - windowSeconds) {
+        const delta = Math.abs((candidate.start + candidate.end) / 2 - event.at);
+        if (!best || delta < best.delta) best = { candidate, delta };
+      }
+    }
+    if (best) {
+      event.relatedEventId = best.candidate.id;
+      event.evidence = { ...event.evidence, relatedEventId: best.candidate.id, relatedDeltaSeconds: Math.round(best.delta * 10) / 10, relatedOnlyForContext: true };
+    }
+  }
+  return hudEvents;
+}
+
+function hudEventIdentity(event, fallback) {
+  return event?.evidence?.identity || event?.evidence?.previousIdentity || fallback || '';
+}
+function nextUniqueHudId(preferred, reserved, assigned) {
+  const base = String(preferred || 'hud');
+  let id = base, suffix = 1;
+  while (reserved.has(id) || assigned.has(id)) id = `${base}-r${suffix++}`;
+  assigned.add(id);
+  return id;
+}
+export function mergeHudRescan(report, result, newName) {
+  const oldHud = report.events.filter(event => event.source === 'hud-ocr');
+  const oldIdentity = report.hud?.identity?.name || '';
+  const newIdentityNorm = normalizeName(newName);
+  const candidates = (result.events || []).map(event => ({
+    ...event,
+    source: 'hud-ocr', kind: 'observation', retained: false,
+    evidence: { ...(event.evidence || {}), identity: newName }
+  }));
+  const reserved = new Set(oldHud.map(event => event.id).filter(Boolean));
+  const assigned = new Set();
+  const matchedOld = new Set();
+  for (const candidate of candidates) {
+    const match = oldHud.find(old => !matchedOld.has(old)
+      && normalizeName(hudEventIdentity(old, oldIdentity)) === newIdentityNorm
+      && old.rowKey && old.rowKey === candidate.rowKey
+      && Math.abs((old.firstSeen ?? old.start ?? 0) - (candidate.firstSeen ?? candidate.start ?? 0)) <= 8);
+    if (match) {
+      matchedOld.add(match);
+      candidate.id = match.id;
+      candidate.reviewed = Boolean(match.reviewed);
+      candidate.included = match.included !== false;
+      candidate.context = match.context || candidate.context;
+      assigned.add(candidate.id);
+    } else {
+      candidate.id = nextUniqueHudId(candidate.id, reserved, assigned);
+    }
+  }
+  const retainedIds = new Set();
+  const retained = oldHud.filter(old => !matchedOld.has(old)).map(old => {
+    const oldIdentityLabel = hudEventIdentity(old, oldIdentity);
+    let id = old.id || nextUniqueHudId('hud', reserved, assigned);
+    if (retainedIds.has(id) || assigned.has(id)) id = nextUniqueHudId(id, reserved, new Set([...assigned, ...retainedIds]));
+    retainedIds.add(id);
+    const reason = normalizeName(oldIdentityLabel) === newIdentityNorm ? 'not-matched' : 'identity-changed';
+    return {
+      ...old,
+      id,
+      retained: true,
+      retainedReason: reason,
+      reviewed: Boolean(old.reviewed),
+      included: old.included !== false,
+      kind: 'observation',
+      evidence: {
+        ...(old.evidence || {}),
+        identity: oldIdentityLabel,
+        previousIdentity: old.evidence?.previousIdentity || oldIdentityLabel,
+        retainedReason: reason
+      }
+    };
+  });
+  const events = [...candidates, ...retained].sort((a, b) => a.start - b.start);
+  const hud = {
+    ...result,
+    identity: { name: newName, normalized: newIdentityNorm },
+    retained: retained.length,
+    retainedConfirmed: retained.filter(event => event.reviewed).length
+  };
+  if (retained.length) hud.message = (hud.message || '') + ` 旧报告有 ${retained.length} 个候选未匹配或来自旧身份，已保留并标为待审查（其中已确认 ${hud.retainedConfirmed} 个）。`;
+  return { events, hud };
+}
+
+export function hudSampleTimes(duration, interval = HUD_SAMPLE_SECONDS) {
+  const times = [];
+  if (!Number.isFinite(duration) || duration <= 0) return times;
+  for (let t = 0.6; t < duration - 0.15; t += interval) times.push(Math.round(t * 1000) / 1000);
+  return times.length ? times : [Math.max(0, Math.min(0.6, duration / 2))];
+}
+
+export function hudRefineTimes(firstSeen, duration) {
+  const times = [];
+  const start = Math.max(0, firstSeen - HUD_REFINE_WINDOW_SECONDS);
+  const end = Math.min(duration - 0.05, firstSeen + 0.45);
+  for (let t = start; t <= end; t += HUD_REFINE_STEP_SECONDS) times.push(Math.round(t * 1000) / 1000);
+  return times;
+}
+
+const abortError = () => new DOMException('HUD 识别已取消。', 'AbortError');
+function withAbort(promise, signal) {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(abortError());
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(abortError());
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(value => { signal.removeEventListener('abort', onAbort); resolve(value); }, error => { signal.removeEventListener('abort', onAbort); reject(error); });
+  });
+}
+function withTimeout(promise, ms, message) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(value => { clearTimeout(timer); resolve(value); }, error => { clearTimeout(timer); reject(error); });
+  });
+}
+function seekVideo(video, t, signal) {
+  return withAbort(new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = error => { if (settled) return; settled = true; cleanup(); error ? reject(error) : resolve(); };
+    const cleanup = () => { clearTimeout(timer); video.removeEventListener('seeked', done); video.removeEventListener('error', failed); };
+    const done = () => finish(); const failed = () => finish(new Error('无法读取这段录像的画面。'));
+    const timer = setTimeout(() => finish(new Error('等待录像跳转超时。')), 8000);
+    video.addEventListener('seeked', done, { once: true }); video.addEventListener('error', failed, { once: true });
+    try { video.currentTime = Math.max(0, Math.min(video.duration || t, t)); } catch (error) { finish(error); }
+  }), signal);
+}
+async function openLocalOcr(playerName, signal, onProgress) {
+  const Tesseract = (await withAbort(import(new URL('../assets/ocr/tesseract.esm.min.js', import.meta.url).href), signal)).default;
+  const base = window.doctorgame ? 'doctorgame-asset://ocr/' : new URL('../assets/ocr/', import.meta.url).href;
+  const languages = playerUsesCjk(playerName) ? ['chi_sim', 'eng'] : ['eng'];
+  let worker;
+  const workerPromise = Tesseract.createWorker(languages, 1, {
+      workerPath: base + 'worker.min.js', corePath: base + 'core/', langPath: base + 'lang',
+      // Browser can load the worker directly; Electron loads file/custom-scheme
+      // assets through a blob worker to avoid a cross-origin Worker constructor.
+      workerBlobURL: Boolean(window.doctorgame), cacheMethod: 'none', cachePath: 'doctorgame-ocr',
+      logger: message => { if (message?.status && message.status !== 'recognizing text') onProgress?.({ phase: '加载本地 OCR', fraction: Math.min(0.12, Number(message.progress || 0) * 0.12) }); }
+    });
+  try {
+    try {
+      worker = await withTimeout(withAbort(workerPromise, signal), 45000, '本地 OCR 初始化超时；可以重试或先手动标记。');
+    } catch (error) {
+      // The abort/timeout can beat createWorker's late resolve. Terminate that
+      // late worker so a cancelled analysis cannot leave a live worker behind.
+      workerPromise.then(late => late?.terminate?.()).catch(() => {});
+      throw error;
+    }
+    await withTimeout(withAbort(worker.setParameters({ preserve_interword_spaces: '1', tessedit_pageseg_mode: '6', user_defined_dpi: '300' }), signal), 20000, 'OCR 参数初始化超时。');
+    if (signal?.aborted) throw abortError();
+    return worker;
+  } catch (error) {
+    try { await worker?.terminate?.(); } catch { /* worker already gone */ }
+    throw error;
+  }
+}
+function drawHudCrop(video, canvas) {
+  const sx = Math.floor(video.videoWidth * HUD_REGION.x), sy = Math.floor(video.videoHeight * HUD_REGION.y);
+  const sw = Math.max(1, Math.floor(video.videoWidth * HUD_REGION.width)), sh = Math.max(1, Math.floor(video.videoHeight * HUD_REGION.height));
+  const scale = Math.max(1, Math.min(3, 1100 / sw));
+  canvas.width = Math.max(1, Math.round(sw * scale)); canvas.height = Math.max(1, Math.round(sh * scale));
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.filter = 'grayscale(1) contrast(1.25)';
+  ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+  ctx.filter = 'none';
+  return canvas;
+}
+function makeStandaloneVideo(url) {
+  const video = document.createElement('video'); video.muted = true; video.playsInline = true; video.preload = 'auto'; video.crossOrigin = 'anonymous';
+  video.src = url;
+  return video;
+}
+
+// Returns a report-safe status. OCR failure, a missing name and no HUD rows are
+// all recoverable states: the caller keeps the recording and trajectory report.
+export async function detectHudEvents(source, { duration, playerName, signal, interval = HUD_SAMPLE_SECONDS, onProgress } = {}) {
+  const identity = String(playerName ?? '').trim();
+  const base = {
+    detector: HUD_DETECTOR_VERSION, model: HUD_MODEL, identity: { name: identity, normalized: normalizeName(identity) },
+    status: 'name-required', events: [], scans: 0, ocrRuns: 0, candidates: 0, rejected: {}, elapsedMs: 0, workerTerminated: false,
+    intervalSeconds: interval, region: { ...HUD_REGION }, message: '未填写本局玩家名，未运行击杀与死亡自动识别。可以补填后重新识别。'
+  };
+  if (normalizeName(identity).length < 2) return base;
+  let video = source, ownVideo = false;
+  if (typeof source === 'string') { video = makeStandaloneVideo(source); ownVideo = true; }
+  if (!(video instanceof HTMLVideoElement)) return { ...base, status: 'error', message: '没有可读取的录像画面，击杀与死亡自动识别未运行。' };
+  const canvas = document.createElement('canvas');
+  let worker, tracker = new HudFeedTracker();
+  const startedAt = performance.now();
+  let scans = 0, ocrRuns = 0;
+  let payload = null;
+  const rejected = {};
+  try {
+    if (ownVideo) await withTimeout(withAbort(new Promise((resolve, reject) => { video.addEventListener('loadeddata', resolve, { once: true }); video.addEventListener('error', () => reject(new Error('无法打开录像画面。')), { once: true }); }), signal), 15000, '读取录像画面超时；可以重试。');
+    if (!video.videoWidth || !video.videoHeight) throw new Error('录像没有可解码画面。');
+    onProgress?.({ phase: '加载本地 OCR', fraction: 0.05, scans, ocrRuns, candidates: 0 });
+    worker = await openLocalOcr(identity, signal, onProgress);
+    const realDuration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : duration;
+    const times = hudSampleTimes(realDuration, interval);
+    const scanAt = async (t, allowCreate = true) => {
+      if (signal?.aborted) throw abortError();
+      await seekVideo(video, t, signal);
+      drawHudCrop(video, canvas);
+      const { data } = await withTimeout(withAbort(worker.recognize(canvas, {}, { text: true, blocks: true }), signal), 30000, 'HUD OCR 单帧超时。');
+      scans++; ocrRuns++;
+      const parsed = parseHudPayload(data, identity);
+      for (const [reason, count] of Object.entries(parsed.rejected)) rejected[reason] = (rejected[reason] || 0) + count;
+      if (allowCreate) tracker.observe(parsed.observations, t);
+      return parsed.observations;
+    };
+    for (let index = 0; index < times.length; index++) {
+      if (signal?.aborted) throw abortError();
+      await scanAt(times[index]);
+      onProgress?.({ phase: '扫描击杀与死亡信息', fraction: 0.12 + 0.7 * ((index + 1) / times.length), scans, ocrRuns, candidates: tracker.events.length });
+    }
+    // Finer local pass around each new row; never a 20 fps OCR loop.
+    for (const event of [...tracker.events]) {
+      for (const t of hudRefineTimes(event.firstSeen, realDuration)) {
+        if (signal?.aborted) throw abortError();
+        const refined = await scanAt(t, false);
+        for (const observation of refined) applyHudRefinement(event, observation, t);
+      }
+    }
+    tracker.finish(realDuration);
+    onProgress?.({ phase: '整理自动识别候选', fraction: 1, scans, ocrRuns, candidates: tracker.events.length });
+    payload = {
+      ...base, status: tracker.events.length ? 'complete' : 'zero', events: tracker.events,
+      scans, ocrRuns, candidates: tracker.events.length, rejected,
+      duration: realDuration, elapsedMs: Math.round(performance.now() - startedAt),
+      message: tracker.events.length ? `自动识别到 ${tracker.events.length} 个本人击杀/死亡候选，等待回放确认。` : '自动识别中没有找到可靠的本人击杀/死亡行；可以手动标记，或检查玩家名后重试。'
+    };
+    return payload;
+  } catch (error) {
+    if (error?.name === 'AbortError' || signal?.aborted) throw abortError();
+    const detail = error instanceof Error ? error.message : String(error || '未知错误');
+    payload = { ...base, status: 'error', scans, ocrRuns, candidates: 0, rejected, elapsedMs: Math.round(performance.now() - startedAt), message: `击杀与死亡自动识别未完成：${detail} 录像和已有报告仍保留，可以重试或手动标记。` };
+    return payload;
+  } finally {
+    let terminated = false;
+    if (worker) {
+      try { await worker.terminate(); terminated = true; } catch { terminated = false; }
+    }
+    if (payload) payload.workerTerminated = terminated;
+    if (ownVideo) { video.removeAttribute('src'); video.load(); }
+  }
+}

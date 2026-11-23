@@ -1,0 +1,99 @@
+# 桌面测试版验收 · 0.2.0-beta.1
+
+基线 `4d72b917460eddabddf8879b849f28458101269c`，开发分支
+`codex/windows-desktop-beta`。2026-11-20，北京时间。
+开始时源码工作区干净；原有忽略的截图和测试结果已另外备份，旧 release 产物保留。
+已读取 AGENTS 和任务文档，识别全部 9 个项目 skills（包含首批 6 个）。
+
+## 界面前后
+
+改版前为仓库已有浏览器截图；改版后取自本机独立打包的 Electron 应用，
+1440×900 内容窗口，完整页面截图。视频是程序生成并带水印的合成录像，非真实游戏。
+
+| 工作台 · 改版前 | 工作台 · 改版后 |
+| --- | --- |
+| ![前](images/workspace-desktop.png) | ![后](images/beta/workspace-after.png) |
+
+| 复盘 · 改版前 | 复盘 · 改版后 |
+| --- | --- |
+| ![前](images/report-desktop.png) | ![后](images/beta/report-after.png) |
+
+设计参考与取舍见 [界面设计记录](desktop-beta-design.md)。
+1280×720、1440×900 和 760×620 均检查无横向溢出；常用桌面尺寸下慢放与确认按钮
+完整位于视口内。小窗口片段列表可折叠。确认、排除和恢复不重建视频，不丢失位置及速度。
+
+## 本机已执行
+
+本机 macOS 14.4 arm64；Node 24.22.3、pnpm 11.25.0、Playwright 1.65.1、
+Chromium 159.0.8154.6、Electron 45.3.2（Chromium 156.0.8078.100 / Node 24.22.2）。
+Node 使用本机已有的 Codex runtime，未修改系统 PATH。
+
+| 命令 / 检查 | 实际结果 |
+| --- | --- |
+| `pnpm install --frozen-lockfile` | 通过；NSIS 不使用的 Squirrel 依赖安装脚本明确禁用 |
+| `pnpm test` | 11 项通过；原样保留算法与样本资格规则 |
+| `pnpm run test:ui` | 5 项通过；实际视频编码与导入、片段跳转、慢放、确认/排除/恢复、焦点返回、窗口尺寸、axe 检查 |
+| `node tests/electron-smoke.mjs` | 开发 Electron 通过；隔离用户数据，实际文件选择导入、原生写盘和媒体协议回放 |
+| 打包 macOS arm64 后，以 `DOCTORGAME_EXECUTABLE` 指向独立程序执行同一冒烟 | 通过；重启保留档案、录像和报告；旧录像仍保留当时 800 DPI，当前档案改为 1600 DPI 不篡改旧数据 |
+| Windows x64 运行目录 | 74 个文件，PE AMD64 入口，ASAR 白名单检查通过 |
+| `pnpm run dist:win`（本机使用已有 Electron ZIP） | 未签名 NSIS 安装器生成成功；构建前后共享运行目录 SHA-256 清单一致 |
+| `python3 scripts/verify-steam.py` | 合成目录的 21 个禁止文件全部排除；实际 74 个运行文件与安装器输入逐文件 SHA-256 一致；0 错误 / 0 警告 |
+
+Electron 的 contextIsolation / sandbox 均开启、nodeIntegration 关闭，渲染器无 `require`。
+原 `src/analysis.js`、`src/media.js`、`src/storage.js` 未改动，存储标识和建议阈值保持兼容。
+测试使用合成素材，仅证明工程流程，不证明真实检测准确率或灵敏度改善。
+
+## Windows 安装与下载
+
+Windows CI [第 3 次运行全部通过](https://github.com/zhoujoe194-maker/doctor-game/actions/runs/44741155789)，
+测试代码提交为 `3d0b4d835016ee8c32b3ac3303e946a88dfa7d6b`。
+随后只补充 README 和本验收记录，不改变运行代码或安装配置。
+
+- [下载 Windows x64 测试安装包 ZIP](https://github.com/zhoujoe194-maker/doctor-game/actions/runs/44741155789/artifacts/14630254510)
+- [下载 Windows 验证记录与 Electron 截图](https://github.com/zhoujoe194-maker/doctor-game/actions/runs/44741155789/artifacts/14632010472)
+
+下载 artifact 需要登录 GitHub；保留至 2026-12-20。解压后运行其中的
+`release/0.2.0-beta.1/installer/doctorgame-0.2.0-beta.1-win-x64-setup.exe`。
+这是未签名测试包。以下是 **ZIP 内 setup.exe** 的 SHA-256，不是 ZIP 的校验值：
+
+```text
+d78eff0c7666f5644ac2c8d5774a0b69b213ad477723cd6280334fd91ab0ddad
+```
+
+Windows GitHub 托管运行器（系统版本 10.0.26100）实际结果：
+
+| 验收项 | 结果 |
+| --- | --- |
+| 算法 / 浏览器 | 11 / 5 项全部通过 |
+| NSIS 安装 | 静默安装退出码 0，独立程序存在，开始菜单快捷方式指向正确程序 |
+| 无外部 Node 启动 | 移除 Node / pnpm 的 PATH 后，从真实开始菜单快捷方式启动窗口成功 |
+| 安装后的导入与复盘 | 实际文件选择导入合成 WebM、解码、点击片段跳转、慢放、确认、排除、恢复通过 |
+| 重启 | 录像字节 SHA-256、档案、报告及本局档案快照一致 |
+| 升级 | 安装测试专用 beta.2，程序报告新版本；原档案、报告及录像逐项保持一致 |
+| 卸载 | 退出码 0；程序和开始菜单入口移除；录像字节、录像元数据、档案/报告存储保留 |
+| Steam 离线检查 | 实际 74 文件 / 374365787 字节，与安装器运行目录哈希一致；21 个禁止样例被排除 |
+
+beta.2 仅用于升级测试，没有作为试用包分发。验证配置在
+`.github/workflows/windows-beta.yml` 和 `scripts/test-windows-install.ps1`。
+这些结果来自 Windows CI 和带水印的合成视频；没有代替真实游戏硬件验收。
+
+本机默认官方下载请求发生 `UND_ERR_CONNECT_TIMEOUT`；使用已有 Electron ZIP 缓存后
+运行目录及 NSIS 构建成功。当前用户安装禁用提权辅助程序，避免 NSIS 向共享的 Steam
+运行目录追加文件。macOS 本身无法执行 Windows 安装器；不能把交叉打包等同于安装验收。
+
+本机安装包：`release/0.2.0-beta.1/installer/doctorgame-0.2.0-beta.1-win-x64-setup.exe`。
+本机该文件的 SHA-256（与 Windows CI 重建产物分别记录）：
+
+```text
+3ba1baea10f671b2ab3b4ffd01b589c891d95282aec7ab155b0d02381952b3ac
+```
+
+## 仍需 Windows 游戏硬件
+
+- Windows 10/11 x64 交互式安装器界面、高 DPI 和多显示器；未签名包的系统提示。
+- VALORANT 窗口选择、取消、拒绝权限恢复、全屏/无边框/窗口模式、托盘录制与停止。
+- Vanguard 兼容性、90 分钟/约 1.8 GiB 自动停止、低磁盘及意外退出后的录像保留。
+- 游戏 FPS、录制帧率与丢帧、CPU/GPU/内存/磁盘使用；在真实玩家录像上评估检测准确率。
+
+Steam 仅完成离线映射，模板占位符未改写；没有登录、Steam Preview、上传、付费或 SetLive。
+实际发布和商店资格仍由发布者另行决定并接受 Valve 审核。

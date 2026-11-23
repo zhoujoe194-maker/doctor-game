@@ -1,12 +1,16 @@
 # 原型验收记录
 
+> **最新索引（2026-11-23）：** 当前已验收应用交付为 `f3ed51f2868dade6869f1fdf8fb480e9568e6ed5`，实现 `01610c1a9983a06fcaebf438e13bc31a17de3b49`。Windows 源码 [run 45121052543](https://github.com/zhoujoe194-maker/doctor-game/actions/runs/45121052543) 通过 27 算法、24 UI、普通与 OCR Electron 流程（严格 3 个合成候选；installer skipped）。最新项目状态见 [project-status.md](project-status.md)，协作入口见 [start-here.md](start-here.md)。
+>
+> **历史说明：** 以下正文是各日期当时的验收记录；例如“Windows 可执行程序尚未运行”只说明记录当时的情况，不代表最新 Windows source CI。历史安装包和旧 CI 也不能代表当前源码。最新端口隔离/harness 结果见本文件末尾或最终交付回执。
+
 2026-11-19：项目更名为 `doctorgame`，仓库名为 `doctor-game`。更新了界面、桌面桥接接口、媒体协议、打包名称、导出文件名和项目截图；保留旧版本存储标识以兼容已有数据。11 项算法测试、3 项浏览器端到端测试及桌面冒烟测试再次通过。
 
 验证环境：macOS / Apple Silicon，Node.js 24.22.1，Electron 45.3.2，Playwright Chromium 159。验证日期按用户时区为 2026-11-15。
 
 2026-11-17 追加验证：四种场景的筛选、预瞄演示、手动补充关键事件、手动片段不触发数值建议，以及慢放速度设置；完整浏览器流程和算法测试通过。
 
-Windows x64 分发目录已成功生成。打包只包含运行必需代码，排除了测试与开发依赖。桌面端本地录像读取与报告流程再次通过 macOS 冒烟测试；Windows 可执行程序尚未在 Windows 系统上运行。
+Windows x64 分发目录已成功生成。打包只包含运行必需代码，排除了测试与开发依赖。桌面端本地录像读取与报告流程再次通过 macOS 冒烟测试；**历史记录（当次）**：Windows 可执行程序尚未在 Windows 系统上运行；最新 Windows 源码 CI 见顶部索引。
 
 ## 已通过
 
@@ -28,3 +32,42 @@ Windows x64 分发目录已成功生成。打包只包含运行必需代码，�
 - 长对局的处理时间与存储压力。当前逐帧 seek 方案可取消，但还没有高吞吐解码流水线。
 
 截图位于 `artifacts/`，由端到端测试生成。Windows 包即使生成成功，也只说明跨平台打包完成，不代表上述 Windows 运行验证已经通过。
+
+
+## 2026-11-22 HUD 击杀/死亡候选的合成工程验证
+
+新增 `src/events.js`、`assets/ocr/` 本地 Tesseract.js 资源与 `tests/events.test.mjs`、`tests/ui/hud-events.spec.js`。27 项算法/纯函数测试与 24 项浏览器测试通过（包含真实画布 WebM → seek → 本地 Tesseract OCR → HUD kill/death 候选 → 0.5× 回放 → 确认/排除 → 重启保留；模型失败、零候选、取消保留和旧报告补填身份）。
+
+合成 8 秒 HUD 视频在测试中完成 23 次 OCR 扫描、产生 3 个候选，OCR 阶段约 2.5 秒；这只验证本机离线管线，不是真实游戏识别准确率。重扫失败/身份改变保留原报告与旧确认的工程回归、精确参与者匹配、重扫 ID 唯一性/身份往返恢复确认和超 8 秒 episode 细读回归也已加入。DSH 本机 plain Electron 仍受环境限制；负责人 normal-sandbox Electron 已实跑真实 OCR（3 个 kill/death/kill、无外部请求）且 source smoke 通过。真实游戏 HUD 布局/缩放/语言/皮肤、长局吞吐、行级 precision/recall 和时间边界误差仍未验证。原始录像、旧档案/报告和存储标识未被迁移或删除；HUD 自动候选确认后仍不是量化样本。
+
+## 2026-11-23 协作测试端口隔离（DSH 实现回执）
+
+| 命令 / 检查 | 实际结果 |
+| --- | --- |
+| `npm test` | 30 pass / 0 fail（含 3 项 `tests/ui-port.test.mjs` 端口配置测试） |
+| `DOCTORGAME_UI_PORT=4271 npm run test:ui` | 24 pass / 0 fail（2.7 分钟；使用独立 4271 服务） |
+| 占用 4271 后执行 `DOCTORGAME_UI_PORT=4271 npx playwright test tests/ui/full-ui.spec.js:5` | 失败，提示 4271 已被占用；没有复用已有服务 |
+| `DOCTORGAME_UI_PORT=4272 npx playwright test tests/ui/full-ui.spec.js:5` | 独立启动 4272 并通过（1 test） |
+| `DOCTORGAME_UI_PORT=abc npx playwright test --list` | 退出 1；`DOCTORGAME_UI_PORT 必须是 1024–65535 的整数` |
+| 配置一致性检查 | `baseURL`、`webServer.url`、`webServer.env.PORT` 均为 4271；`reuseExistingServer=false` |
+
+这只是测试 harness 的隔离验证，不改变生产应用的默认 4173 开发端口；也不代表安装包、Windows source CI 或 Electron 历史结果重新通过。Windows source CI 的最新已验收回执见顶部索引；本轮没有打包。
+
+## 2026-11-23 协作基线独立验收（Codex）
+
+复核 DSH 冻结提交 `6bc705d034832fdcdafe5b597c1f31acadcf080a`，独立运行并读取以下结果。应用代码和生产安全设置没有因协作准备改变；本轮修改的是文档、任务模板和 UI 测试配置。
+
+| 命令 / 检查 | 负责人实际结果 |
+| --- | --- |
+| `npm test` | 30/30 通过；27 项应用规则 + 3 项端口校验 |
+| `DOCTORGAME_UI_PORT=4281 npm run test:ui` | 24/24 通过，2.6 分钟；含真实编码视频与离线 OCR、复盘和重启保存回归 |
+| 独立 HTTP 服务占用 4283 后执行 `DOCTORGAME_UI_PORT=4283 npx playwright test tests/ui/full-ui.spec.js:5` | 退出 1，明确提示地址已被使用，没有连接该服务执行用例 |
+| 保持 4283 占用，执行 `DOCTORGAME_UI_PORT=4284 npx playwright test tests/ui/full-ui.spec.js:5` | 1/1 通过；4283 的原服务仍返回独立标记，未被停止或替换 |
+| `DOCTORGAME_UI_PORT=abc npx playwright test --list` | 退出 1，提示必须是 1024–65535 的整数 |
+| `npx --offline skills@1.9.0 list -a codex` | 退出 0，发现 12 项项目 skills |
+| skills/锁检查 | 12 项名称、commit/hash 格式一致；`.agents/skills/` 与 `skills-lock.json` 对 `origin/codex/doctor-game-skills` 差异为空 |
+| 文档 / 模板 | 协作入口的本地链接 0 断链；Issue 与 CI YAML 经 Ruby YAML 解析通过；`git diff --check` 通过 |
+
+端口探测原始输出保存在本机忽略的 `artifacts/collaboration-port-probe.json`。独立复核还修正了任务分支示例：必须显式从 `origin/main` 创建，避免继承窗口当前旧分支。
+
+当前源码的 Windows CI 在推送后由 GitHub 运行，最终回执统一记在 [PR #4](https://github.com/zhoujoe194-maker/doctor-game/pull/4) 与 [协作总入口 #7](https://github.com/zhoujoe194-maker/doctor-game/issues/7)，不把上方历史应用 CI 当作本轮新跑结果。installer 保持显式手动门控，本轮不触发。真实 Windows 游戏采集和性能仍待实机验证。

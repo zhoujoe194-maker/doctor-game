@@ -1,0 +1,115 @@
+name: Windows desktop beta
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_installer:
+        description: Build, install-test and upload the unsigned Windows installer
+        type: boolean
+        default: false
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-beta-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-checks:
+    name: Source checks and Electron smoke
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '11.25.0'
+      - name: Install locked development dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install Chromium for UI checks
+        run: pnpm exec playwright install chromium
+      - name: Algorithm and browser tests
+        run: |
+          pnpm test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm run test:ui
+      - name: Source Electron smoke (no installer)
+        env:
+          DOCTORGAME_TEST_LABEL: windows-source
+        run: node tests/electron-smoke.mjs
+      - name: Source Electron offline event recognition (no installer)
+        run: node tests/electron-hud-smoke.mjs
+      - name: Upload source verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: doctorgame-windows-source-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            artifacts/electron/windows-source/result.json
+            artifacts/electron/windows-source/*.png
+            artifacts/electron/hud-source/result.json
+            artifacts/electron/hud-source/initial-report.json
+            artifacts/electron/hud-source/*.png
+            artifacts/beta/*.png
+            artifacts/workspace-desktop.png
+            artifacts/profile-desktop.png
+            artifacts/report-desktop.png
+            artifacts/workspace-mobile.png
+
+  installer:
+    name: Installer build and install regression
+    needs: source-checks
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_installer == true }}
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '11.25.0'
+      - name: Install locked development dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build unsigned Windows x64 installer
+        id: build
+        run: pnpm run dist:win
+      - name: Verify Steam mappings offline
+        run: python scripts/verify-steam.py
+      - name: Install, import, review, restart, upgrade and uninstall
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: ./scripts/test-windows-install.ps1
+      - name: Upload verified versioned beta (no release publishing)
+        uses: actions/upload-artifact@v4
+        with:
+          name: doctorgame-0.2.0-beta.1-windows-x64
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            release/0.2.0-beta.1/installer/*setup.exe
+            release/0.2.0-beta.1/installer/*.sha256
+            release/0.2.0-beta.1/installer/runtime-manifest.json
+            docs/windows.md
+      - name: Upload installer verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: doctorgame-windows-installer-evidence
+          retention-days: 30
+          if-no-files-found: warn
+          path: |
+            artifacts/windows-install-result.json
+            artifacts/steam-offline.json
+            artifacts/electron/windows-installed/*.png
+            artifacts/electron/windows-installed/result.json
+            artifacts/electron/windows-upgraded/result.json
+            artifacts/beta/*.png
