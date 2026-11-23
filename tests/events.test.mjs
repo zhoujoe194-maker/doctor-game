@@ -23,7 +23,7 @@ test('supports Chinese player names and exact normalized matching', () => {
   const kill = classifyHudLine(line('玩家甲 幻影 敌人乙'), '玩家甲');
   assert.equal(kill.status, 'match'); assert.equal(kill.context, 'kill');
   assert.equal(normalizeName(' 玩家甲 '), '玩家甲');
-  const split = { text: '玩家 甲 敌人 乙', confidence: 70, bbox: { x0: 0, y0: 0, x1: 400, y1: 32 }, words: ['玩家', '甲', '敌人', '乙'].map((text, index) => ({ text, confidence: 70, bbox: { x0: index * 70, y0: 0, x1: index * 70 + 60, y1: 32 } })) };
+  const split = { text: '玩家 甲 敌人 乙', confidence: 70, bbox: { x0: 0, y0: 0, x1: 400, y1: 32 }, words: ['玩家', '甲', '敌人', '乙'].map((text, index) => ({ text, confidence: 70, bbox: { x0: index * 65, y0: 0, x1: index * 65 + 60, y1: 32 } })) };
   const chinese = classifyHudLine(split, '玩家甲');
   assert.equal(chinese.status, 'match'); assert.equal(chinese.context, 'kill'); assert.equal(chinese.rightText, '敌人 乙');
   assert.equal(classifyHudLine(line('玩家甲二号 幻影 敌人乙'), '玩家甲').status, 'reject');
@@ -36,6 +36,32 @@ test('does not treat a longer or edited name as the exact player identity', () =
     assert.equal(result.status, 'reject', identity);
   }
   assert.equal(classifyHudLine(line('Alex Enemy'), 'Alex').status, 'match');
+});
+
+test('middle icon OCR noise does not change the participant dedupe key', () => {
+  const words = (icon) => [
+    { text: 'PlayerOne', confidence: 90, bbox: { x0: 0, y0: 0, x1: 160, y1: 32 } },
+    { text: icon, confidence: 60, bbox: { x0: 180, y0: 0, x1: 210, y1: 32 } },
+    { text: 'EnemyOne', confidence: 90, bbox: { x0: 240, y0: 0, x1: 400, y1: 32 } }
+  ];
+  const em = classifyHudLine({ text: 'PlayerOne EM EnemyOne', confidence: 90, bbox: { x0: 0, y0: 0, x1: 400, y1: 32 }, words: words('EM') }, 'PlayerOne');
+  const i = classifyHudLine({ text: 'PlayerOne I EnemyOne', confidence: 90, bbox: { x0: 0, y0: 0, x1: 400, y1: 32 }, words: words('I') }, 'PlayerOne');
+  const other = classifyHudLine({ text: 'PlayerOne EM EnemyTwo', confidence: 90, bbox: { x0: 0, y0: 0, x1: 400, y1: 32 }, words: [
+    { text: 'PlayerOne', confidence: 90, bbox: { x0: 0, y0: 0, x1: 160, y1: 32 } },
+    { text: 'EM', confidence: 60, bbox: { x0: 180, y0: 0, x1: 210, y1: 32 } },
+    { text: 'EnemyTwo', confidence: 90, bbox: { x0: 240, y0: 0, x1: 400, y1: 32 } }
+  ] }, 'PlayerOne');
+  assert.equal(em.rowKey, i.rowKey);
+  assert.notEqual(em.rowKey, other.rowKey);
+  assert.equal(em.rightText, 'EnemyOne');
+  assert.match(em.lineText, /EM/);
+  assert.equal(em.middleText, 'EM');
+  const tracker = new HudFeedTracker();
+  tracker.observe([em], 1.6); tracker.observe([i], 2.6);
+  assert.equal(tracker.finish(8).length, 1);
+  const separate = new HudFeedTracker();
+  separate.observe([em], 1.6); separate.observe([other], 2.6);
+  assert.equal(separate.finish(8).length, 2);
 });
 
 test('rejects teammates, assists, missing names and names not at a participant edge', () => {

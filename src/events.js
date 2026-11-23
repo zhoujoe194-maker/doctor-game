@@ -25,7 +25,9 @@ export const HUD_REJECT_REASONS = Object.freeze({
   NO_OPPONENT: 'no-opponent',
   LOW_CONFIDENCE: 'low-confidence',
   ASSIST_TEXT: 'assist-or-extra-text',
-  LINE_TOO_SMALL: 'line-too-small'
+  LINE_TOO_SMALL: 'line-too-small',
+  GEOMETRY_MISSING: 'geometry-missing',
+  AMBIGUOUS_OPPONENT: 'ambiguous-opponent'
 });
 
 export function normalizeName(value) {
@@ -53,6 +55,31 @@ function sequenceMatch(values, target, fromStart) {
   return 0;
 }
 function playerUsesCjk(name) { return /[\u3400-\u9fff\uf900-\ufaff]/.test(String(name || '')); }
+
+// Keep only the contiguous text block at the opposite edge. HUD weapon/ability
+// icons are not participant text: OCR sometimes reads them as EM/I/[] between
+// the two names. Geometry (a larger inter-word gap) separates that middle icon
+// from a multi-word or Chinese name; without bbox evidence we refuse to guess.
+function edgeSpan(words, side, gapLimit) {
+  const ordered = side === 'left' ? words : [...words].reverse();
+  const span = [];
+  for (const word of ordered) {
+    const box = word?.bbox;
+    if (!box || !Number.isFinite(box.x0) || !Number.isFinite(box.x1)) return null;
+    if (!span.length) { span.push(word); continue; }
+    const previous = span.at(-1);
+    const gap = side === 'left' ? box.x0 - previous.bbox.x1 : previous.bbox.x0 - box.x1;
+    if (gap > gapLimit) break;
+    span.push(word);
+  }
+  return side === 'left' ? span : span.reverse();
+}
+function medianWordHeight(words) {
+  const heights = words.map(word => Number(word?.bbox?.y1) - Number(word?.bbox?.y0)).filter(value => Number.isFinite(value) && value > 0);
+  if (!heights.length) return 0;
+  heights.sort((a, b) => a - b);
+  return heights[Math.floor(heights.length / 2)];
+}
 
 // A kill-feed row is a ranked statement: killer on the left, victim on the
 // right. Matching only at an edge prevents a teammate, an assist icon, or a
@@ -82,20 +109,38 @@ export function classifyHudLine(line, playerName, { minConfidence = HUD_MIN_OCR_
     const middle = values.join('').includes(identityNorm);
     return { status: 'reject', reason: middle ? HUD_REJECT_REASONS.NAME_MIDDLE : HUD_REJECT_REASONS.NAME_MISSING, confidence };
   }
-  const other = side === 'left' ? values.slice(prefix).join('') : values.slice(0, values.length - suffix).join('');
-  if (!other) return { status: 'reject', reason: HUD_REJECT_REASONS.NO_OPPONENT, confidence };
-  const leftWords = side === 'left' ? words.slice(0, prefix) : words.slice(0, values.length - suffix);
-  const rightWords = side === 'right' ? words.slice(-suffix) : words.slice(prefix);
+  const lineHeight = medianWordHeight(words);
+  if (!lineHeight) return { status: 'reject', reason: HUD_REJECT_REASONS.GEOMETRY_MISSING, confidence };
+  const gapLimit = Math.max(3, Math.min(32, lineHeight * 0.2));
+  let opponentWords, leftWords, rightWords;
+  if (side === 'left') {
+    opponentWords = edgeSpan(words.slice(prefix), 'right', gapLimit);
+    leftWords = words.slice(0, prefix);
+    rightWords = opponentWords;
+    if (!opponentWords) return { status: 'reject', reason: HUD_REJECT_REASONS.AMBIGUOUS_OPPONENT, confidence };
+  } else {
+    opponentWords = edgeSpan(words.slice(0, words.length - suffix), 'left', gapLimit);
+    leftWords = opponentWords;
+    rightWords = words.slice(-suffix);
+    if (!opponentWords) return { status: 'reject', reason: HUD_REJECT_REASONS.AMBIGUOUS_OPPONENT, confidence };
+  }
+  const opponentNorm = normalizeName(opponentWords.map(word => word.text).join(''));
+  if (!opponentNorm) return { status: 'reject', reason: HUD_REJECT_REASONS.NO_OPPONENT, confidence };
+  const middleWords = words.slice(leftWords.length, words.length - rightWords.length);
   return {
     status: 'match', side, confidence: Math.round(confidence) / 100, ocrConfidence: Math.round(confidence),
     context: side === 'left' ? 'kill' : 'death',
-    rowKey: `${side}|${values.join('')}`,
+    // Identity + opposite participant only. Middle icon OCR noise is evidence,
+    // not identity or dedupe identity.
+    rowKey: `${side}|${identityNorm}|${opponentNorm}`,
     lineText: text,
     leftText: leftWords.map(word => word.text).join(' '),
     rightText: rightWords.map(word => word.text).join(' '),
-    otherText: other,
+    otherText: opponentWords.map(word => word.text).join(' '),
+    middleText: middleWords.map(word => word.text).join(' '),
     matchedName: identity,
-    words: words.map(word => word.text)
+    words: words.map(word => word.text),
+    wordBoxes: words.map(word => ({ text: word.text, bbox: word.bbox }))
   };
 }
 
@@ -184,7 +229,7 @@ export class HudFeedTracker {
             identity: observation.matchedName || '',
             participantSide: observation.side, rowText: observation.lineText,
             matchedName: observation.matchedName || '', otherText: observation.otherText,
-            leftText: observation.leftText || '', rightText: observation.rightText || '',
+            leftText: observation.leftText || '', rightText: observation.rightText || '', middleText: observation.middleText || '',
             rowsInSample: observations.length, firstSeen: t, lastSeen: t,
             region: { ...HUD_REGION }
           },

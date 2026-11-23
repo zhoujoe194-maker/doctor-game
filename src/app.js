@@ -8,7 +8,7 @@ const esc = value => String(value ?? '').replace(/[&<>"']/g, s => ({ '&': '&amp;
 const time = seconds => `${String(Math.floor((seconds || 0) / 60)).padStart(2, '0')}:${String(Math.floor((seconds || 0) % 60)).padStart(2, '0')}`;
 const clipTime = seconds => `${time(seconds)}.${String(Math.floor((seconds % 1) * 100)).padStart(2, '0')}`;
 const kindLabel = { overshoot: '越过目标', undershoot: '移动不足', settled: '接近目标', preaim: '视角运动观察', observation: '手动标记 · 待量化' };
-const eventKindLabel = event => event?.source === 'hud-ocr' ? (event.retained ? (event.reviewed ? '旧候选保留 · 已确认' : '旧候选保留 · 待审查') : event.reviewed ? '自动识别 · 已确认' : '自动识别 · 待确认') : kindLabel[event?.kind] || kindLabel.observation;
+const eventKindLabel = event => event?.source === 'hud-ocr' ? (event.retained ? (event.included === false ? '旧候选保留 · 已排除' : event.reviewed ? '旧候选保留 · 已确认' : '旧候选保留 · 待审查') : event.included === false ? '自动识别 · 已排除' : event.reviewed ? '自动识别 · 已确认' : '自动识别 · 待确认') : kindLabel[event?.kind] || kindLabel.observation;
 const hudCandidateCount = report => (report?.events || []).filter(event => event.source === 'hud-ocr').length;
 const sceneGuidance = {
   unknown: '先回看接敌的完整过程，再确认片段属于哪一种场景。',

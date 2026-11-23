@@ -39,6 +39,7 @@ const digest = async file => createHash('sha256').update(await readFile(file)).d
 try {
   await launch();
   const fixture = await createHudVideo(page, path.join(output, 'synthetic-hud.webm'));
+  const fixtureHash = await digest(fixture);
   await page.locator('#player-name').fill('PlayerOne');
   const chooser = page.waitForEvent('filechooser');
   await page.getByRole('button', { name: '导入录像', exact: true }).click();
@@ -46,11 +47,36 @@ try {
   await expect(page.getByRole('heading', { name: '赛后复盘', exact: true })).toBeVisible({ timeout: 180000 });
   const initial = await saved();
   assert.equal(initial.report.hud.status, 'complete');
-  const events = initial.report.events.filter(event => event.source === 'hud-ocr');
-  assert.ok(events.some(event => event.context === 'kill'));
-  assert.ok(events.some(event => event.context === 'death'));
-  assert.ok(events.every(event => event.kind === 'observation' && !event.reviewed));
+  const events = initial.report.events.filter(event => event.source === 'hud-ocr').sort((a, b) => a.firstSeen - b.firstSeen);
+  // The fixture is intentionally one kill, one death, one kill. PNG/OCR drift
+  // must not turn icon text into a fourth event; match by relative periods and
+  // participant evidence, not only by contains(kill/death).
+  assert.equal(events.length, 3, 'expected exactly 3 HUD candidates: ' + JSON.stringify(events.map(event => ({ context: event.context, rowText: event.evidence?.rowText, rowKey: event.rowKey }))));
+  assert.deepEqual(events.map(event => event.context), ['kill', 'death', 'kill']);
+  const expectedPeriods = [1.6 / 8, 4.8 / 8, 7.2 / 8];
+  for (const [index, event] of events.entries()) {
+    assert.equal(event.source, 'hud-ocr');
+    assert.equal(event.kind, 'observation');
+    assert.equal(event.reviewed, false);
+    assert.ok(event.rowKey);
+    assert.ok(event.evidence?.rowText);
+    assert.match(event.evidence.rowText, /PlayerOne/);
+    assert.ok(event.evidence.leftText || event.evidence.rightText);
+    const normalized = event.firstSeen / initial.report.duration;
+    assert.ok(Math.abs(normalized - expectedPeriods[index]) <= 0.20, `period ${index}: ${normalized.toFixed(3)} vs ${expectedPeriods[index].toFixed(3)}`);
+    assert.ok(event.firstSeen >= 0 && event.lastSeen >= event.firstSeen && event.end >= event.start);
+  }
   assert.equal(initial.item.playerName, 'PlayerOne');
+  const recordingFile = path.join(dataDir, 'recordings', initial.item.id + '.webm');
+  await writeFile(path.join(output, 'initial-report.json'), JSON.stringify({
+    fixtureSHA256: fixtureHash,
+    recordingSHA256: await digest(recordingFile),
+    duration: initial.report.duration,
+    identitySnapshot: initial.report.hud.identity,
+    hud: initial.report.hud,
+    events,
+    report: initial.report
+  }, null, 2));
   const deathIndex = initial.report.events.findIndex(event => event.context === 'death');
   await page.locator(`[data-event="${deathIndex}"]`).click();
   await expect.poll(() => page.locator('#replay').evaluate(v => v.currentTime)).toBeCloseTo(initial.report.events[deathIndex].start, 1);
@@ -82,7 +108,6 @@ try {
   await page.locator('[name="dpi"]').fill('1600');
   await page.getByRole('button', { name: '保存并返回录制', exact: true }).click();
   const before = await saved();
-  const recordingFile = path.join(dataDir, 'recordings', before.item.id + '.webm');
   const beforeHash = await digest(recordingFile);
   await close();
   await launch();
@@ -101,7 +126,8 @@ try {
   assert.deepEqual(errors, []);
   const result = { passed: true, platform: process.platform, userData: dataDir, sourceOnly: true,
     candidates: events.length, scans: initial.report.hud.scans, ocrElapsedMs: initial.report.hud.elapsedMs,
-    fixtureSHA256: await digest(fixture), recordingSHA256: beforeHash,
+    fixtureSHA256: fixtureHash, recordingSHA256: beforeHash,
+    initialReport: 'initial-report.json',
     profileSnapshot: after.report.profile, identitySnapshot: after.report.hud.identity,
     externalRequests: [], note: 'Synthetic HUD engineering verification, not real gameplay accuracy or performance.' };
   await writeFile(path.join(output, 'result.json'), JSON.stringify(result, null, 2));

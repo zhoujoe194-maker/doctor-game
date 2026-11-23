@@ -23,7 +23,7 @@
 
 1. **低频定位（1 Hz）**：对录像按 1 秒间隔 seek，裁剪归一化右上区域（`x=0.68, y=0.07, w=0.31, h=0.42`），灰度+对比度增强并放大到约 1100 px 宽。不会在原来的 20 fps 分析循环里逐帧 OCR。
 2. **本地 OCR**：Tesseract.js 7.0.0，LSTM OEM；英文名使用 `eng`，含中日韩字符的名字使用 `chi_sim + eng`。模型、worker、WASM 和 traineddata 全部来自 `assets/ocr/`，没有运行时 CDN。
-3. **行解析**：取 OCR 的 `lines/words`，只在玩家名**精确**作为行首或行尾参与者时建立候选；记录左右文字、文字识别分、行文本和扫描时间。`Alex` 不会匹配 `AlexB`、`Alex1`、`Alexll` 或 `AlexBB`。如果图标/文字重叠导致名字与相邻字符无法从几何上分离，选择拒绝而不是裁掉后缀伪造精确身份；合成 fixture 已把武器方块与玩家名分开。
+3. **行解析**：取 OCR 的 `lines/words`，只在玩家名**精确**作为行首或行尾参与者时建立候选。对手名字只取对侧边缘的连续文字块，使用词框间距（约为字高的 20%）把中间武器/技能图标的 OCR 噪声（如 `EM`/`I`/`[]`）与参与者文字分开；中间 token 只写入证据，不进入身份或去重 key。`Alex` 不会匹配 `AlexB`、`Alex1`、`Alexll` 或 `AlexBB`；缺少词框或无法分离边界时拒绝，不裁后缀伪造身份。合成 fixture 已把武器方块与玩家名分开。
 4. **跨帧去重**：以 `side + 归一化整行` 作为行签名。击杀信息行在连续扫描/向上移动时合并为一个候选；行消失超过 8 秒后同名行再次出现才创建新候选。同一扫描里重复行只算一次。
 5. **候选附近细读**：新候选首次出现附近以约 0.4 秒步长补扫最多约 1.6 秒。细读针对指定 episode 局部匹配（`rowKey` 相同才更新时间），不经过全局 active/expire，也不会把早期 episode 合并到 20 秒后重新出现的同名 episode。
 6. **时间段**：候选默认保留首次出现前 1.5 秒、最后出现后 1 秒，截断到录像时长；记录 `firstSeen/lastSeen/at/start/end`。
@@ -97,10 +97,11 @@ npx playwright install chromium
 npm run test:ui
 ```
 
-- 当前 `npm test` 26 项、`npm run test:ui` 24 项；HUD UI 回归 5 项。
-- `tests/events.test.mjs`：持续行/行上移去重、同名重新出现、`AlexB/Alex1/Alexll` 等非精确身份拒绝、队友/助攻/缺少边缘/歧义名字拒绝、低置信度、中文名、关联轨迹不伪造证据、HUD 确认仍 0 量化、采样频率、超 8 秒多轮 episode 的 coarse→refine 不合并。
+- 当前 `npm test` 27 项、`npm run test:ui` 24 项；HUD UI 回归 5 项。
+- `tests/events.test.mjs`：持续行/行上移去重、同名重新出现、中间图标 `EM/I` 变化不改变 `rowKey`、不同对手不合并、`AlexB/Alex1/Alexll` 等非精确身份拒绝、队友/助攻/缺少边缘/歧义名字拒绝、低置信度、中文名、关联轨迹不伪造证据、HUD 确认仍 0 量化、采样频率、超 8 秒多轮 episode 的 coarse→refine 不合并。
 - `tests/ui/hud-events.spec.js`：真实画布 WebM → 导入 → seek 解码 → **真实本地 Tesseract OCR** → kill/death 候选 → 0.5× 跳转/确认/排除 → 重启保留；模型失败、零候选、取消保留、旧报告补填身份。
 - 合成 8 秒 HUD 视频的实际测试曾产生 **23 次 OCR 扫描、3 个 HUD 候选（kill/death/kill）**，OCR 阶段约 **2.5 秒**（报告 `hud.elapsedMs`），原视频约 166 个分析帧；具体数字会写入报告。该数字只证明管线非 stub，不是召回率或准确率。报告截图见 `artifacts/full-ui/dsh/16-hud-report-1440x900.png`。
+- Windows source Electron smoke 现在严格断言 3 个候选，并按相对时段一对一匹配 kill/death/kill；`initial-report.json` 保存时间、rowKey、左右参与者、中间 token 和 evidence，随源码 CI artifact 上传，便于定位未来 OS 编码漂移。
 - 进度使用阶段单调映射：轨迹 0–55%，自动识别 55–100%；worker 日志不再把每帧识别重置为低进度；结束显示 100%。取消测试会等到自动识别初始化/扫描阶段再取消，并在 finally 终止 worker；报告字段 `hud.workerTerminated` 仅在确实取得 worker 且 `terminate()` 成功后为 `true`，否则为 `false`（不是外部清理证明）。被 abort/timeout 抢先的 `createWorker` 晚完成时也会 terminate。
 - 重扫失败/取消/缺名**不写持久化报告**：保留原报告字节、原 reviewed/included 和录像，只在当前界面显示本次失败。成功重扫同一身份时按行签名和 8 秒内时间邻近保留匹配事件的确认/排除/场景纠正；身份改变或未匹配的旧候选不静默删除，而是 `retained: true` 保留在报告中供审查/排除。合并时保留旧事件 ID；同身份匹配候选沿用旧 ID；新未匹配事件使用不碰撞的稳定后缀 ID。多次改变身份再扫回原身份可恢复原确认，且不会产生两个相同 `hud-1` 或吞掉旧确认。
 - DSH 本机的 plain Electron 仍受环境限制；负责人 normal-sandbox Electron 已实际运行真实 OCR 并得到 3 个 kill/death/kill、无外部请求，source smoke 通过。该结果属于负责人环境；真实游戏 HUD、中文真实样本、不同 HUD 缩放/语言/分辨率、长局吞吐和误检率仍未系统验证。

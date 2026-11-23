@@ -128,6 +128,8 @@ test('full video import produces real local HUD kill/death candidates with revie
   await expect(page.getByRole('button', { name: '已确认 · 更新', exact: true })).toBeVisible();
   await page.locator('#exclude-event').click();
   await expect(page.locator('#exclude-event')).toHaveText('恢复此片段');
+  await expect(page.locator('.event-row.selected')).toContainText('已排除');
+  await expect(page.locator('.event-row.selected')).not.toContainText('待确认');
 
   await page.reload();
   await expect(page.getByRole('heading', { name: '继续上一局', exact: true })).toBeVisible();
