@@ -1,8 +1,8 @@
 # doctorgame 开发 skills
 
-这套配置面向当前的 Electron + 原生 JavaScript 桌面原型。Skills 为开发时
-的 Codex 提供工作方法；产品的检测算法仍由 `src/analysis.js` 和
-`src/media.js` 实现。算法开发与真实数据验证以 `docs/product.md` 为依据。
+这套配置面向当前的 Electron + 原生 JavaScript 桌面原型。项目包含 **12 个模型中立的 skill 文件**，位于 `.agents/skills/`，并由 `skills-lock.json` 固定来源和哈希；产品的检测算法仍由 `src/analysis.js` 和 `src/media.js` 实现，算法开发与真实数据验证以 `docs/product.md` 为依据。
+
+这些文件不保证任何客户端都会自动发现或加载。Codex、Claude、Gemini 或其他工具是否支持自动发现取决于其当前版本；不支持时，直接读取对应 `SKILL.md`，不要因此安装新的 skills、复制第二套项目规则或声称某工具一定可用。
 
 ## 已选择的能力
 
@@ -35,7 +35,7 @@
 npx --yes skills@1.9.0 list -a codex
 ```
 
-在 Codex CLI 或 IDE 插件里输入 `/skills`，确认项目 skills 已被发现。
+如果你的 Codex CLI/IDE 插件支持该命令，可输入 `/skills` 查看当前客户端的发现结果；不支持时直接读取 `.agents/skills/<name>/SKILL.md`。其他模型不应把该命令当作保证。
 也可以在任务中明确提及，例如：
 
 ```text

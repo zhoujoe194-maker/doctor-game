@@ -11,6 +11,36 @@ The current stack is native JavaScript ES modules, HTML/CSS, Electron,
 MediaRecorder, IndexedDB, and Playwright. Follow the existing architecture;
 framework migrations and cloud services require a concrete product need.
 
+## Collaboration entry
+
+- New windows read `docs/start-here.md`, `docs/project-status.md`, and
+  `docs/collaboration.md` before changing anything, then report cwd, branch,
+  HEAD, dirty files, task Issue, base SHA, and intended write scope.
+- The shared baseline is `origin/main`. Fetch first and verify it contains the
+  accepted delivery before starting; do not build from an old main or an
+  unrelated dirty checkout. If the baseline is not ready, ask the coordinator.
+- A Task Issue is a claim/coordination entry, not an atomic lock. One write
+  owner works in one independent clone/worktree on a `codex/<issue>-<scope>`
+  branch. Preserve existing dirty work; never auto-stash/pop/reset/clean it.
+- Shared hotspots (`src/app.js`, `src/styles.css`, `src/media.js`,
+  `src/events.js`, `src/analysis.js`, `src/storage.js`, `electron/`, lockfiles)
+  require an owner and write-scope confirmation before editing. Review windows
+  are read-only by default. Only the coordinator integrates main after
+  independent acceptance; future merges require the user's explicit request.
+- Use isolated test ports/artifacts/user-data. `DOCTORGAME_UI_PORT` must match
+  across `baseURL` and `webServer`; port reuse must not silently use another
+  window's server. Do not point desktop tests at real user data.
+- Record the base SHA, frozen delivery SHA, full diff, actual commands/results,
+  and unverified items in the Issue/PR. Historical CI and other windows'
+  reports are not acceptance evidence.
+
+## Distribution stop
+
+Do not build or update an installer, publish a Release, or upload to Steam
+unless the user explicitly asks in the current task. The repository's historical
+beta.1 packages do not represent the current source or latest event recognition.
+Source-only CI may run; packaging remains a separate authorized action.
+
 ## Skills and routing
 
 Project skills live in `.agents/skills/`. Read the matching `SKILL.md` when a
@@ -85,6 +115,10 @@ derive from the same packaged app. Publishing requires a separate request.
 - UI, media, or persistence changes: `npm run test:ui` on a working browser.
 - Desktop, IPC, or media-protocol changes: `node tests/electron-smoke.mjs` on a
   supported desktop host, with isolated synthetic test data.
+- OCR/HUD desktop changes: also run `node tests/electron-hud-smoke.mjs` on a
+  supported desktop host; it uses the local OCR assets/protocol, isolated test
+  data, and strict synthetic event evidence. Windows CI additionally runs it in
+  source mode; a skipped installer job is not an installer verification.
 - Windows capture, Vanguard compatibility, long recordings, and FPS/CPU/GPU
   impact require Windows hardware measurements. Packaging success is a separate
   result.

@@ -8,32 +8,40 @@ doctorgame 希望把「灵敏度不顺手」拆成可回看的具体问题：击
 
 **当前交付是可运行原型，不是已经验证有效的灵敏度优化产品。** 尚无真实对局训练数据或准确率评估。击杀/死亡目前是本地 HUD 文本的自动候选，仍需用户回放确认；这不是经过真实对局评估的识别模型。
 
+## 新窗口与协作入口
+
+统一协作基线是 **`origin/main`**。新窗口先 fetch，再读
+[新窗口入口](docs/start-here.md)、[项目当前状态](docs/project-status.md) 和
+[协作约定](docs/collaboration.md)，并在任务 Issue 认领 owner/文件范围。
+不要在共享 dirty 目录同时写；一个窗口一个独立 worktree 和
+`codex/<issue>-<scope>` 分支。Issue 是协调入口，不是原子锁。
+
 ## 界面预览
 
 ![doctorgame：顶部导航与上一局画面主导的 Electron 评审版](docs/images/full-ui/after/returning.png)
 
 ![赛后复盘：Electron 导入的合成测试录像，非真实游戏](docs/images/full-ui/after/report-stable.png)
 
-最新[自动击杀/死亡候选与独立验收](docs/event-detection-validation.md)，以及
-[全界面重设计、六组前后截图与独立验收](docs/full-ui-validation.md)。
-保留上一轮[玩家流程审查与验收基线](docs/player-experience-validation.md)。
-此前 Windows beta.1 的[安装与升级验证基线](docs/desktop-beta-validation.md)继续保留；
-当前评审分支尚未合并；历史安装包不含最新自动事件识别。按用户要求暂不更新安装包，GitHub 继续同步源码。
+当前源码状态与最新验收索引见 [项目当前状态](docs/project-status.md)。
+[自动击杀/死亡候选独立验收](docs/event-detection-validation.md) 与
+[全界面重设计及六组前后截图](docs/full-ui-validation.md) 记录历史评审证据；
+历史 PR 链由 Codex 在统一 main 整合中保留，最终 main SHA、合并状态和任务回执以
+GitHub Issue/PR 及负责人确认为准。玩家流程、桌面 beta 等历史记录继续保留。
+
+历史安装包是旧评审产物，**不含最新自动事件识别和当前源码 UI**；用户当前没有要求
+重新打包，本轮不更新安装包、Release 或 Steam。
 
 ## 核心流程
 
 填写玩家档案 → 填写录像中的玩家名 → 选择游戏窗口并后台记录/导入整段录像 → 赛后提取轨迹与 HUD 候选片段 → 按场景回放确认 → 小幅试用或保持原值 → 在相同条件下复测。
 
-## 玩家安装
+## 历史安装包
 
-Windows x64 测试者下载版本化的 `doctorgame-0.2.0-beta.1-win-x64-setup.exe`，
-双击安装，再从开始菜单启动；无需 Node.js、pnpm 或开发服务器。
-[历史深色主题评审包 ZIP](https://github.com/zhoujoe194-maker/doctor-game/actions/runs/44924126720/artifacts/14715531252)
-（需登录 GitHub，保留至北京时间 2026-12-22；解压后运行其中的 setup.exe）。
-这是草稿 PR 的未签名评审构建，版本文件名沿用 beta.1，以本轮链接和校验值区分旧包。
-下载入口、SHA-256 和实际验收状态见
-[玩家流程独立验收](docs/player-experience-validation.md)，安装与数据保留说明见
-[Windows 使用说明](docs/windows.md)。源码仓库不存放安装包或玩家录像。
+此前 Windows x64 beta.1 评审包已保留在历史验证记录中；它是未签名历史产物，
+**不代表当前源码，也不含后续自动击杀/死亡识别与新 UI 修正**。用户没有要求本轮
+重新打包，因此这里不提供或更新“latest”下载。安装、升级和数据保留说明仍见
+[Windows 使用说明](docs/windows.md)；历史安装/升级证据见
+[桌面 beta 验收](docs/desktop-beta-validation.md)。源码仓库不存放安装包或玩家录像。
 
 ## 开发运行
 
@@ -53,7 +61,22 @@ npm run dev
 
 访问 <http://127.0.0.1:4173>。浏览器录制时必须保持页面打开；桌面版在录制时关闭窗口会隐藏到托盘，可从托盘停止。
 
-Windows x64 安装包构建命令（安装依赖后）：
+多窗口并行测试时每个目录使用独立端口，避免复用别人正在运行的服务：
+
+```sh
+# POSIX
+DOCTORGAME_UI_PORT=4271 npm run test:ui
+```
+
+```powershell
+# PowerShell
+$env:DOCTORGAME_UI_PORT = "4271"
+npm run test:ui
+```
+
+默认端口仍为 4173；必须为 1024–65535 的整数，端口被占用会明确失败而不是复用。测试输出、Electron user-data 和依赖也应留在各自目录。
+
+未来用户明确授权更新安装包时，Windows x64 构建命令（安装依赖后）：
 
 ```sh
 npm run dist:win
@@ -62,7 +85,7 @@ npm run dist:win
 运行目录位于 `release/0.2.0-beta.1/doctorgame-win32-x64/`；安装器和 SHA-256
 位于同版本的 `installer/`。`npm run pack:win` 只生成运行目录。
 打包后的整个目录也作为 Steam depot 输入，见 [SteamPipe 准备说明](steam/README.md)。
-PR 与默认手动 Windows CI 只运行源码测试和 Electron smoke；只有手动触发并设置 `build_installer=true` 才构建、安装验证并上传 installer artifact，不创建 Release 或执行 Steam 上传。
+PR 与默认手动 Windows CI 只运行源码测试和 Electron smoke；只有手动触发并设置 `build_installer=true` 才构建、安装验证并上传 installer artifact，不创建 Release 或执行 Steam 上传。当前用户未授权更新安装包/Release/Steam；历史安装包不代表当前源码。
 
 这个源码仓库不包含生成的运行包、依赖目录或玩家录像。项目介绍中的界面图片来自原型和明确标注的合成示例。
 
@@ -109,11 +132,13 @@ PR 与默认手动 Windows CI 只运行源码测试和 Electron smoke；只有�
 ```sh
 npm test
 npx playwright install chromium
-npm run test:ui
+DOCTORGAME_UI_PORT=4271 npm run test:ui
 node tests/electron-smoke.mjs
 node tests/electron-hud-smoke.mjs
 python3 scripts/verify-steam.py
 ```
+
+当前源码、测试数量和 Windows CI 链接见 [项目当前状态](docs/project-status.md)；最新验证索引见 [docs/validation.md](docs/validation.md)。历史窗口/分支的通过不能替代本任务的实际检查。
 
 算法测试使用合成轨迹和已知图像位移；界面测试用程序生成的画布视频实际编码、保存、解码，并通过真实本地 Tesseract OCR 生成 HUD 候选。它们用于验证软件管线，不代表真实游戏识别准确率。
 
@@ -128,9 +153,10 @@ src/events.js         HUD 击杀信息 OCR、参与者匹配、跨帧去重与�
 src/media.js          视频录制、逐帧分析与合成示例
 src/storage.js        本地录像和报告存储
 src/app.js            工作台、玩家档案与片段复盘界面
-scripts/              本地预览服务与 Windows 打包
+scripts/              本地预览/端口校验与 Windows 打包
 tests/                算法、浏览器流程和桌面冒烟测试
-docs/                 产品设计、验证记录与 Windows 使用说明
+docs/                 产品设计、协作入口、验证记录与 Windows 使用说明
+.github/              Issue/PR 协作模板与源码 CI
 ```
 
 ## 研究与平台依据

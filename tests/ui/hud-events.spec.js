@@ -25,6 +25,7 @@ test('full video import produces real local HUD kill/death candidates with revie
   page.on('pageerror', error => errors.push(error.message));
   page.on('request', request => requests.push(request.url()));
   await page.goto('/');
+  const requestOrigin = new URL(page.url()).origin;
   await page.evaluate(() => {
     window.__progressValues = [];
     window.__progressTimer = setInterval(() => {
@@ -64,7 +65,7 @@ test('full video import produces real local HUD kill/death candidates with revie
   expect(recordingSnapshot.profile.dpi).toBe(800);
   expect(requests.some(url => url.includes('/assets/ocr/worker.min.js'))).toBe(true);
   expect(requests.some(url => /cdn\.jsdelivr|tessdata\.projectnaptha|unpkg\.com/i.test(url))).toBe(false);
-  expect(requests.every(url => url.startsWith('http://127.0.0.1:4173/') || url.startsWith('blob:') || url.startsWith('data:'))).toBe(true);
+  expect(requests.every(url => url.startsWith(requestOrigin + '/') || url.startsWith('blob:') || url.startsWith('data:'))).toBe(true);
 
   await page.locator('.event-row').filter({ hasText: '自动识别' }).first().click();
   await expect(page.locator('.hud-evidence')).toContainText('识别依据');
